@@ -1,8 +1,9 @@
 // Main React App component
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import MeetingController from './components/MeetingController.js';
 import MeetingStatus from './components/MeetingStatus.js';
 import TranscriptionControls from './components/TranscriptionControls.js';
+import RealTimeTranscription from './components/RealTimeTranscription.js';
 import ConfigurationPanel from './components/ConfigurationPanel.js';
 import useConfiguration from './hooks/useConfiguration.js';
 import './App.css';
@@ -12,6 +13,9 @@ function App() {
   const [error, setError] = useState(null);
   const [meetingEvents, setMeetingEvents] = useState([]);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
+  
+  // Transcription engine reference
+  const transcriptionEngineRef = useRef(null);
 
   // Configuration hook
   const { config, hasValidConfiguration, requiresConsent } = useConfiguration();
@@ -46,11 +50,17 @@ function App() {
     startTranscription,
     stopTranscription,
     getPlatformCapabilities,
-    getAudioStatus
+    getAudioStatus,
+    transcriptionEngine
   } = MeetingController({ 
     onMeetingStateChange: handleMeetingStateChange, 
     onError: handleError 
   });
+
+  // Store transcription engine reference
+  if (transcriptionEngine && !transcriptionEngineRef.current) {
+    transcriptionEngineRef.current = transcriptionEngine;
+  }
 
   // Handle start transcription
   const handleStartTranscription = useCallback(async () => {
@@ -69,6 +79,27 @@ function App() {
     }
     return result;
   }, [stopTranscription]);
+
+  // Handle transcription pause
+  const handlePauseTranscription = useCallback(() => {
+    if (transcriptionEngineRef.current) {
+      transcriptionEngineRef.current.pauseTranscription();
+    }
+  }, []);
+
+  // Handle transcription resume
+  const handleResumeTranscription = useCallback(() => {
+    if (transcriptionEngineRef.current) {
+      transcriptionEngineRef.current.resumeTranscription();
+    }
+  }, []);
+
+  // Handle transcription clear
+  const handleClearTranscription = useCallback(() => {
+    if (transcriptionEngineRef.current) {
+      transcriptionEngineRef.current.clearTranscriptionBuffer();
+    }
+  }, []);
 
   // Clear error message
   const clearError = () => {
@@ -156,54 +187,48 @@ function App() {
           isTranscribing={isTranscribing}
         />
 
-        {isTranscribing && (
-          <div className="transcription-display">
-            <h3>Live Transcription</h3>
+        {isAudioCapturing && (
+          <div className="audio-status">
+            <div className="audio-indicator">
+              <span className="recording-dot">🔴</span>
+              <span>Audio Capture Active</span>
+            </div>
             
-            {isAudioCapturing && (
-              <div className="audio-status">
-                <div className="audio-indicator">
-                  <span className="recording-dot">🔴</span>
-                  <span>Audio Capture Active</span>
-                </div>
-                
-                {audioQuality && (
-                  <div className="audio-quality">
-                    <h4>Audio Quality</h4>
-                    <div className="quality-metrics">
-                      <div className="metric">
-                        <span>Volume:</span>
-                        <span className={audioQuality.averageVolume > 0.01 ? 'good' : 'poor'}>
-                          {(audioQuality.averageVolume * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="metric">
-                        <span>Signal/Noise:</span>
-                        <span className={audioQuality.signalToNoiseRatio > 2 ? 'good' : 'poor'}>
-                          {audioQuality.signalToNoiseRatio?.toFixed(1) || 'N/A'}
-                        </span>
-                      </div>
-                      <div className="metric">
-                        <span>Quality:</span>
-                        <span className={getAudioStatus()?.isQualitySufficient ? 'good' : 'poor'}>
-                          {getAudioStatus()?.isQualitySufficient ? '✅ Good' : '⚠️ Poor'}
-                        </span>
-                      </div>
-                    </div>
+            {audioQuality && (
+              <div className="audio-quality">
+                <h4>Audio Quality</h4>
+                <div className="quality-metrics">
+                  <div className="metric">
+                    <span>Volume:</span>
+                    <span className={audioQuality.averageVolume > 0.01 ? 'good' : 'poor'}>
+                      {(audioQuality.averageVolume * 100).toFixed(1)}%
+                    </span>
                   </div>
-                )}
+                  <div className="metric">
+                    <span>Signal/Noise:</span>
+                    <span className={audioQuality.signalToNoiseRatio > 2 ? 'good' : 'poor'}>
+                      {audioQuality.signalToNoiseRatio?.toFixed(1) || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="metric">
+                    <span>Quality:</span>
+                    <span className={getAudioStatus()?.isQualitySufficient ? 'good' : 'poor'}>
+                      {getAudioStatus()?.isQualitySufficient ? '✅ Good' : '⚠️ Poor'}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
-            
-            <div className="transcript-area">
-              <div className="placeholder-message">
-                🎯 Transcription engine will be implemented in the next task
-                <br />
-                <small>Audio capture is {isAudioCapturing ? 'active and ready' : 'not active'} for processing</small>
-              </div>
-            </div>
           </div>
         )}
+
+        <RealTimeTranscription
+          transcriptionEngine={transcriptionEngineRef.current}
+          isActive={isTranscribing}
+          onPause={handlePauseTranscription}
+          onResume={handleResumeTranscription}
+          onClear={handleClearTranscription}
+        />
 
         {getPlatformCapabilities && (
           <div className="platform-info">

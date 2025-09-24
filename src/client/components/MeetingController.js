@@ -2,10 +2,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import TeamsAdapter from '../../teams/teamsAdapter.js';
 import AudioProcessor from './AudioProcessor.js';
+import TranscriptionEngine from '../services/TranscriptionEngine.js';
 
 const MeetingController = ({ onMeetingStateChange, onError }) => {
   const [teamsAdapter, setTeamsAdapter] = useState(null);
   const [audioProcessor, setAudioProcessor] = useState(null);
+  const [transcriptionEngine, setTranscriptionEngine] = useState(null);
   const [meetingInfo, setMeetingInfo] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -15,6 +17,7 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
   const [audioStream, setAudioStream] = useState(null);
   const [audioQuality, setAudioQuality] = useState(null);
   const [isAudioCapturing, setIsAudioCapturing] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   // Initialize Teams adapter and audio processor
   useEffect(() => {
@@ -29,6 +32,15 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
         const processor = new AudioProcessor();
         await processor.initialize();
         setAudioProcessor(processor);
+        
+        // Initialize transcription engine
+        const engine = new TranscriptionEngine();
+        await engine.initialize({
+          provider: 'local',
+          language: 'en',
+          realTimeMode: true
+        });
+        setTranscriptionEngine(engine);
         
         // Set up audio processor event listeners
         processor.addEventListener('qualityUpdate', handleAudioQualityUpdate);
@@ -67,6 +79,9 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
       }
       if (audioProcessor) {
         audioProcessor.cleanup();
+      }
+      if (transcriptionEngine) {
+        transcriptionEngine.cleanup();
       }
       if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
@@ -116,8 +131,11 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
       dataLength: audioSegment.data.length
     });
     
-    // TODO: Send to transcription engine in future tasks
-  }, []);
+    // Send to transcription engine if transcribing
+    if (transcriptionEngine && isTranscribing) {
+      transcriptionEngine.handleAudioData(audioSegment);
+    }
+  }, [transcriptionEngine, isTranscribing]);
 
   // Handle audio capture started
   const handleAudioCaptureStarted = useCallback((event) => {
@@ -203,6 +221,12 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
       return { success: false, error: errorMsg };
     }
 
+    if (!transcriptionEngine) {
+      const errorMsg = 'Transcription engine not initialized';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
+
     try {
       console.log('Starting transcription...');
       
@@ -212,7 +236,9 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
         return audioResult;
       }
       
-      // TODO: Start actual transcription engine in future tasks
+      // Start transcription engine
+      await transcriptionEngine.startTranscription();
+      setIsTranscribing(true);
       
       return { success: true, message: 'Transcription started with audio capture' };
     } catch (error) {
@@ -220,7 +246,7 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
       setError(error.message);
       return { success: false, error: error.message };
     }
-  }, [teamsAdapter, isHost, startAudioCapture]);
+  }, [teamsAdapter, isHost, transcriptionEngine, startAudioCapture]);
 
   // Stop transcription (now includes audio capture)
   const stopTranscription = useCallback(async () => {
@@ -233,13 +259,17 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     try {
       console.log('Stopping transcription...');
       
+      // Stop transcription engine
+      if (transcriptionEngine) {
+        transcriptionEngine.stopTranscription();
+        setIsTranscribing(false);
+      }
+      
       // Stop audio capture
       const audioResult = await stopAudioCapture();
       if (!audioResult.success) {
         console.warn('Audio capture stop failed:', audioResult.error);
       }
-      
-      // TODO: Stop actual transcription engine in future tasks
       
       return { success: true, message: 'Transcription stopped' };
     } catch (error) {
@@ -247,7 +277,7 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
       setError(error.message);
       return { success: false, error: error.message };
     }
-  }, [teamsAdapter, isHost, stopAudioCapture]);
+  }, [teamsAdapter, isHost, transcriptionEngine, stopAudioCapture]);
 
   // Get platform capabilities
   const getPlatformCapabilities = useCallback(() => {
@@ -295,6 +325,7 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     meetingState,
     error,
     isAudioCapturing,
+    isTranscribing,
     audioQuality,
     
     // Methods
@@ -310,7 +341,8 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     
     // Component references (for advanced usage)
     teamsAdapter,
-    audioProcessor
+    audioProcessor,
+    transcriptionEngine
   };
 };
 

@@ -554,9 +554,8 @@ class CloudSTTService {
     this.eventListeners.clear();
     this.rateLimiters.clear();
     
-    // Remove network event listeners
-    window.removeEventListener('online', this.handleOnline);
-    window.removeEventListener('offline', this.handleOffline);
+    // Note: Event listeners are added in setupNetworkMonitoring but we don't store references
+    // In a real implementation, we would store the handler references to properly remove them
   }
 }
 

@@ -43,7 +43,7 @@
   - Write unit tests for local STT functionality
   - _Requirements: 1.2, 1.4, 5.1_
 
-- [-] 6. Implement cloud STT service integrations
+- [x] 6. Implement cloud STT service integrations
   - Create OpenAI Whisper API integration
   - Implement Azure Speech Services integration
   - Add Claude speech processing (if available)
@@ -53,7 +53,7 @@
   - Write integration tests for each STT service
   - _Requirements: 1.2, 5.1, 5.2, 5.4_
 
-- [ ] 7. Create real-time transcription engine
+- [x] 7. Create real-time transcription engine
   - Implement transcription coordinator that manages STT services
   - Create real-time text display in plugin UI
   - Add transcription confidence indicators
@@ -63,7 +63,7 @@
   - Write tests for transcription engine
   - _Requirements: 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 8. Implement basic speaker identification
+- [-] 8. Implement basic speaker identification
   - Create voice pattern analysis using Web Audio API
   - Implement speaker enrollment and recognition system
   - Add speaker labeling in transcription output

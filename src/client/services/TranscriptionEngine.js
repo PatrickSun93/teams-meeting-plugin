@@ -8,6 +8,7 @@ class TranscriptionEngine {
     this.cloudSTTService = new CloudSTTService();
     this.isInitialized = false;
     this.isTranscribing = false;
+    this.isPaused = false;
     this.currentProvider = 'local';
     
     // Configuration
@@ -19,7 +20,10 @@ class TranscriptionEngine {
       maxRetries: 3,
       retryDelay: 1000,
       apiKeys: {},
-      cloudConfig: {}
+      cloudConfig: {},
+      realTimeMode: true,
+      bufferSize: 5,
+      outputDelay: 2000
     };
     
     // Transcription state
@@ -27,6 +31,13 @@ class TranscriptionEngine {
     this.lastTranscriptionTime = 0;
     this.processingQueue = [];
     this.isProcessing = false;
+    this.currentSegment = null;
+    this.segmentBuffer = '';
+    
+    // Real-time streaming
+    this.streamingBuffer = '';
+    this.lastStreamUpdate = 0;
+    this.streamingTimer = null;
     
     // Performance tracking
     this.metrics = {
@@ -44,6 +55,7 @@ class TranscriptionEngine {
     // Bind methods
     this.handleAudioData = this.handleAudioData.bind(this);
     this.processTranscriptionQueue = this.processTranscriptionQueue.bind(this);
+    this.updateStreamingText = this.updateStreamingText.bind(this);
   }
 
   /**
@@ -180,8 +192,12 @@ class TranscriptionEngine {
 
     try {
       this.isTranscribing = true;
+      this.isPaused = false;
       this.transcriptionBuffer = [];
       this.processingQueue = [];
+      this.currentSegment = null;
+      this.segmentBuffer = '';
+      this.streamingBuffer = '';
       this.resetMetrics();
       
       console.log('Transcription started');
@@ -195,6 +211,51 @@ class TranscriptionEngine {
       console.error('Failed to start transcription:', error);
       throw new Error(`Failed to start transcription: ${error.message}`);
     }
+  }
+
+  /**
+   * Pause transcription process
+   */
+  pauseTranscription() {
+    if (!this.isTranscribing) {
+      console.warn('Transcription not active');
+      return;
+    }
+
+    this.isPaused = true;
+    
+    // Clear streaming timer
+    if (this.streamingTimer) {
+      clearTimeout(this.streamingTimer);
+      this.streamingTimer = null;
+    }
+    
+    console.log('Transcription paused');
+    this.notifyListeners('transcriptionPaused', {
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Resume transcription process
+   */
+  resumeTranscription() {
+    if (!this.isTranscribing) {
+      console.warn('Transcription not active');
+      return;
+    }
+
+    this.isPaused = false;
+    
+    // Resume processing queue if needed
+    if (!this.isProcessing && this.processingQueue.length > 0) {
+      this.processTranscriptionQueue();
+    }
+    
+    console.log('Transcription resumed');
+    this.notifyListeners('transcriptionResumed', {
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -226,19 +287,25 @@ class TranscriptionEngine {
    * Handle audio data from AudioProcessor
    */
   handleAudioData(audioData) {
-    if (!this.isTranscribing || !audioData || !audioData.data) {
+    if (!this.isTranscribing || this.isPaused || !audioData || !audioData.data) {
       return;
     }
 
     // Add to processing queue
     const queueItem = {
-      id: `audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `audio_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       audioData: audioData,
       timestamp: Date.now(),
       retries: 0
     };
     
     this.processingQueue.push(queueItem);
+    
+    // Notify processing status change
+    this.notifyListeners('processingStatusChanged', {
+      isProcessing: this.isProcessing,
+      queueLength: this.processingQueue.length
+    });
     
     // Start processing if not already processing
     if (!this.isProcessing) {
@@ -256,7 +323,13 @@ class TranscriptionEngine {
 
     this.isProcessing = true;
     
-    while (this.processingQueue.length > 0 && this.isTranscribing) {
+    // Notify processing started
+    this.notifyListeners('processingStatusChanged', {
+      isProcessing: true,
+      queueLength: this.processingQueue.length
+    });
+    
+    while (this.processingQueue.length > 0 && this.isTranscribing && !this.isPaused) {
       const queueItem = this.processingQueue.shift();
       
       try {
@@ -266,11 +339,23 @@ class TranscriptionEngine {
         await this.handleProcessingError(queueItem, error);
       }
       
+      // Update processing status
+      this.notifyListeners('processingStatusChanged', {
+        isProcessing: true,
+        queueLength: this.processingQueue.length
+      });
+      
       // Small delay to prevent overwhelming the system
       await this.delay(100);
     }
     
     this.isProcessing = false;
+    
+    // Notify processing completed
+    this.notifyListeners('processingStatusChanged', {
+      isProcessing: false,
+      queueLength: this.processingQueue.length
+    });
   }
 
   /**
@@ -292,12 +377,21 @@ class TranscriptionEngine {
         return;
       }
       
+      // Determine which provider to use (check for fallback)
+      const providerToUse = queueItem.fallbackProvider || this.currentProvider;
+      
       // Transcribe using appropriate provider
       let result;
-      if (this.isLocalProvider(this.currentProvider)) {
+      if (this.isLocalProvider(providerToUse)) {
         result = await this.transcribeWithLocal(queueItem.audioData);
       } else {
-        result = await this.transcribeWithCloud(queueItem.audioData, this.currentProvider);
+        result = await this.transcribeWithCloud(queueItem.audioData, providerToUse);
+      }
+      
+      // Clear fallback provider after successful transcription
+      if (queueItem.fallbackProvider) {
+        delete queueItem.fallbackProvider;
+        delete queueItem.fallbackAttempts;
       }
       
       const processingTime = performance.now() - startTime;
@@ -444,28 +538,116 @@ class TranscriptionEngine {
     // Update metrics
     this.updateMetrics(processingTime, true, result.confidence);
     
-    // Add to transcription buffer
+    // Create transcription entry
     const transcriptionEntry = {
-      id: queueItem ? queueItem.id : `result_${Date.now()}`,
+      id: result.id || (queueItem ? queueItem.id : `result_${Date.now()}`),
       text: result.text,
       confidence: result.confidence,
       language: result.language,
-      timestamp: result.timestamp,
+      timestamp: result.timestamp || Date.now(),
       segments: result.segments || [],
       processingTime: processingTime,
-      provider: 'local'
+      provider: result.provider || this.currentProvider
     };
     
+    // Handle real-time mode
+    if (this.config.realTimeMode) {
+      this.handleRealTimeResult(transcriptionEntry);
+    } else {
+      // Traditional buffered mode
+      this.transcriptionBuffer.push(transcriptionEntry);
+      this.lastTranscriptionTime = Date.now();
+      
+      // Notify listeners
+      this.notifyListeners('transcriptionResult', transcriptionEntry);
+      
+      // Check if we should send accumulated text
+      this.checkForTextOutput();
+    }
+    
+    console.log(`Transcription completed: "${result.text}" (confidence: ${result.confidence})`);
+  }
+
+  /**
+   * Handle real-time transcription result
+   */
+  handleRealTimeResult(transcriptionEntry) {
+    // Add to buffer immediately for history/editing functionality
     this.transcriptionBuffer.push(transcriptionEntry);
     this.lastTranscriptionTime = Date.now();
     
-    console.log(`Transcription completed: "${result.text}" (confidence: ${result.confidence})`);
+    // Update streaming buffer for real-time display
+    this.streamingBuffer += (this.streamingBuffer ? ' ' : '') + transcriptionEntry.text;
+    this.lastStreamUpdate = Date.now();
     
-    // Notify listeners
+    // Send partial result for real-time display
+    this.notifyListeners('partialResult', {
+      text: this.streamingBuffer,
+      confidence: transcriptionEntry.confidence,
+      timestamp: transcriptionEntry.timestamp,
+      isPartial: true
+    });
+    
+    // Also send the final result immediately
     this.notifyListeners('transcriptionResult', transcriptionEntry);
     
-    // Check if we should send accumulated text
-    this.checkForTextOutput();
+    // Set timer to finalize segment (for streaming display)
+    if (this.streamingTimer) {
+      clearTimeout(this.streamingTimer);
+    }
+    
+    this.streamingTimer = setTimeout(() => {
+      this.finalizeStreamingSegment();
+    }, this.config.outputDelay);
+  }
+
+  /**
+   * Finalize streaming segment
+   */
+  finalizeStreamingSegment() {
+    if (!this.streamingBuffer) return;
+    
+    const finalSegment = {
+      id: `segment_${Date.now()}`,
+      text: this.streamingBuffer.trim(),
+      confidence: this.calculateAverageConfidence(),
+      timestamp: Date.now(),
+      provider: this.currentProvider,
+      isFinal: true
+    };
+    
+    // Add to buffer and notify
+    this.transcriptionBuffer.push(finalSegment);
+    this.notifyListeners('transcriptionResult', finalSegment);
+    
+    // Clear streaming buffer
+    this.streamingBuffer = '';
+    this.streamingTimer = null;
+    
+    console.log(`Finalized segment: "${finalSegment.text}"`);
+  }
+
+  /**
+   * Calculate average confidence from recent results
+   */
+  calculateAverageConfidence() {
+    const recentResults = this.transcriptionBuffer.slice(-3);
+    if (recentResults.length === 0) return 0.5;
+    
+    const totalConfidence = recentResults.reduce((sum, result) => sum + (result.confidence || 0), 0);
+    return totalConfidence / recentResults.length;
+  }
+
+  /**
+   * Update streaming text display
+   */
+  updateStreamingText(text, confidence = 0.5) {
+    this.notifyListeners('partialResult', {
+      text: text,
+      confidence: confidence,
+      timestamp: Date.now(),
+      isPartial: true
+    });
   }
 
   /**
@@ -733,6 +915,54 @@ class TranscriptionEngine {
   }
 
   /**
+   * Change STT provider
+   */
+  async changeProvider(provider, config = {}) {
+    console.log(`Changing STT provider to: ${provider}`);
+    
+    if (!this.isProviderSupported(provider)) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+    
+    // Validate cloud provider configuration
+    if (this.isCloudProvider(provider)) {
+      if (!config.apiKey && !this.config.apiKeys[provider]) {
+        throw new Error(`API key required for provider: ${provider}`);
+      }
+      
+      // Check network connectivity
+      if (!this.cloudSTTService.getNetworkStatus().isOnline) {
+        throw new Error('No internet connection available for cloud provider');
+      }
+    }
+    
+    const oldProvider = this.currentProvider;
+    this.currentProvider = provider;
+    
+    // Update configuration
+    if (config.apiKey) {
+      this.config.apiKeys[provider] = config.apiKey;
+    }
+    
+    if (config.cloudConfig) {
+      this.config.cloudConfig[provider] = { ...this.config.cloudConfig[provider], ...config.cloudConfig };
+    }
+    
+    // Initialize new provider if needed
+    if (this.isLocalProvider(provider) && !this.localSTTService.isInitialized) {
+      await this.localSTTService.initialize({
+        language: this.config.language
+      });
+    }
+    
+    this.notifyListeners('providerChanged', { 
+      from: oldProvider, 
+      to: provider,
+      config: this.getProviderConfig(provider)
+    });
+  }
+
+  /**
    * Change language
    */
   async changeLanguage(language) {
@@ -740,11 +970,104 @@ class TranscriptionEngine {
     
     this.config.language = language;
     
-    if (this.localSTTService) {
+    if (this.localSTTService && this.isLocalProvider(this.currentProvider)) {
       await this.localSTTService.changeLanguage(language);
     }
     
     this.notifyListeners('languageChanged', { language });
+  }
+
+  /**
+   * Update API key for provider
+   */
+  updateApiKey(provider, apiKey) {
+    if (!this.isCloudProvider(provider)) {
+      throw new Error(`Provider ${provider} does not require an API key`);
+    }
+    
+    this.config.apiKeys[provider] = apiKey;
+    
+    this.notifyListeners('apiKeyUpdated', { provider });
+  }
+
+  /**
+   * Check if provider is supported
+   */
+  isProviderSupported(provider) {
+    const supportedProviders = [
+      'local_whisper',
+      'openai_whisper', 
+      'azure_speech', 
+      'claude_speech'
+    ];
+    return supportedProviders.includes(provider);
+  }
+
+  /**
+   * Check if provider is local
+   */
+  isLocalProvider(provider) {
+    return provider === 'local_whisper' || provider === 'local';
+  }
+
+  /**
+   * Check if provider is cloud-based
+   */
+  isCloudProvider(provider) {
+    return ['openai_whisper', 'azure_speech', 'claude_speech'].includes(provider);
+  }
+
+  /**
+   * Get provider configuration
+   */
+  getProviderConfig(provider) {
+    const config = {
+      provider: provider,
+      isLocal: this.isLocalProvider(provider),
+      isCloud: this.isCloudProvider(provider),
+      requiresApiKey: this.isCloudProvider(provider),
+      hasApiKey: this.isCloudProvider(provider) ? !!this.config.apiKeys[provider] : true
+    };
+    
+    if (this.isCloudProvider(provider)) {
+      config.isAvailable = this.cloudSTTService.isProviderAvailable(provider);
+      config.rateLimit = this.cloudSTTService.getRateLimitStatus(provider);
+    } else {
+      config.isAvailable = true;
+    }
+    
+    return config;
+  }
+
+  /**
+   * Get all available providers
+   */
+  getAvailableProviders() {
+    const providers = [];
+    
+    // Local provider
+    providers.push({
+      id: 'local_whisper',
+      name: 'Local Whisper',
+      type: 'local',
+      isAvailable: true,
+      requiresApiKey: false,
+      isCurrent: this.currentProvider === 'local_whisper'
+    });
+    
+    // Cloud providers
+    const cloudProviders = this.cloudSTTService.getAvailableProviders();
+    cloudProviders.forEach(provider => {
+      providers.push({
+        ...provider,
+        type: 'cloud',
+        requiresApiKey: true,
+        hasApiKey: !!this.config.apiKeys[provider.id],
+        isCurrent: this.currentProvider === provider.id
+      });
+    });
+    
+    return providers;
   }
 
   /**
@@ -755,18 +1078,205 @@ class TranscriptionEngine {
   }
 
   /**
+   * Get transcription history
+   */
+  getTranscriptionHistory() {
+    return this.transcriptionBuffer.map(segment => ({
+      id: segment.id,
+      text: segment.text,
+      confidence: segment.confidence,
+      timestamp: segment.timestamp,
+      provider: segment.provider,
+      isEdited: segment.isEdited || false
+    }));
+  }
+
+  /**
+   * Get full transcript text
+   */
+  getFullTranscript() {
+    return this.transcriptionBuffer
+      .filter(segment => segment.text && !segment.isError)
+      .map(segment => segment.text)
+      .join(' ');
+  }
+
+  /**
+   * Clear transcription buffer
+   */
+  clearTranscriptionBuffer() {
+    const clearedSegments = [...this.transcriptionBuffer];
+    this.transcriptionBuffer = [];
+    this.streamingBuffer = '';
+    
+    if (this.streamingTimer) {
+      clearTimeout(this.streamingTimer);
+      this.streamingTimer = null;
+    }
+    
+    this.notifyListeners('transcriptionCleared', {
+      clearedSegments: clearedSegments,
+      timestamp: Date.now()
+    });
+    
+    console.log('Transcription buffer cleared');
+  }
+
+  /**
+   * Edit transcription segment
+   */
+  editTranscriptionSegment(segmentId, newText) {
+    const segmentIndex = this.transcriptionBuffer.findIndex(segment => segment.id === segmentId);
+    
+    if (segmentIndex === -1) {
+      throw new Error(`Segment with id ${segmentId} not found`);
+    }
+    
+    const originalText = this.transcriptionBuffer[segmentIndex].text;
+    this.transcriptionBuffer[segmentIndex].text = newText;
+    this.transcriptionBuffer[segmentIndex].isEdited = true;
+    this.transcriptionBuffer[segmentIndex].editedAt = Date.now();
+    
+    this.notifyListeners('segmentEdited', {
+      segmentId: segmentId,
+      originalText: originalText,
+      newText: newText,
+      timestamp: Date.now()
+    });
+    
+    console.log(`Segment ${segmentId} edited: "${originalText}" -> "${newText}"`);
+  }
+
+  /**
+   * Delete transcription segment
+   */
+  deleteTranscriptionSegment(segmentId) {
+    const segmentIndex = this.transcriptionBuffer.findIndex(segment => segment.id === segmentId);
+    
+    if (segmentIndex === -1) {
+      throw new Error(`Segment with id ${segmentId} not found`);
+    }
+    
+    const deletedSegment = this.transcriptionBuffer.splice(segmentIndex, 1)[0];
+    
+    this.notifyListeners('segmentDeleted', {
+      segmentId: segmentId,
+      deletedSegment: deletedSegment,
+      timestamp: Date.now()
+    });
+    
+    console.log(`Segment ${segmentId} deleted: "${deletedSegment.text}"`);
+  }
+
+  /**
+   * Export transcription in various formats
+   */
+  exportTranscription(format = 'text') {
+    const segments = this.transcriptionBuffer.filter(segment => !segment.isError);
+    
+    switch (format) {
+      case 'text':
+        return segments.map(segment => segment.text).join(' ');
+      
+      case 'json':
+        return JSON.stringify(segments, null, 2);
+      
+      case 'srt':
+        return this.generateSRTFormat(segments);
+      
+      case 'vtt':
+        return this.generateVTTFormat(segments);
+      
+      default:
+        throw new Error(`Unsupported export format: ${format}`);
+    }
+  }
+
+  /**
+   * Generate SRT subtitle format
+   */
+  generateSRTFormat(segments) {
+    let srt = '';
+    let counter = 1;
+    
+    segments.forEach((segment, index) => {
+      const startTime = new Date(segment.timestamp);
+      const endTime = index < segments.length - 1 
+        ? new Date(segments[index + 1].timestamp)
+        : new Date(segment.timestamp + 3000); // Default 3 second duration
+      
+      srt += `${counter}\n`;
+      srt += `${this.formatSRTTime(startTime)} --> ${this.formatSRTTime(endTime)}\n`;
+      srt += `${segment.text}\n\n`;
+      counter++;
+    });
+    
+    return srt;
+  }
+
+  /**
+   * Generate WebVTT format
+   */
+  generateVTTFormat(segments) {
+    let vtt = 'WEBVTT\n\n';
+    
+    segments.forEach((segment, index) => {
+      const startTime = new Date(segment.timestamp);
+      const endTime = index < segments.length - 1 
+        ? new Date(segments[index + 1].timestamp)
+        : new Date(segment.timestamp + 3000);
+      
+      vtt += `${this.formatVTTTime(startTime)} --> ${this.formatVTTTime(endTime)}\n`;
+      vtt += `${segment.text}\n\n`;
+    });
+    
+    return vtt;
+  }
+
+  /**
+   * Format time for SRT
+   */
+  formatSRTTime(date) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
+    return `${hours}:${minutes}:${seconds},${milliseconds}`;
+  }
+
+  /**
+   * Format time for WebVTT
+   */
+  formatVTTTime(date) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
+    return `${hours}:${minutes}:${seconds}.${milliseconds}`;
+  }
+
+  /**
    * Get current status
    */
   getStatus() {
     return {
       isInitialized: this.isInitialized,
       isTranscribing: this.isTranscribing,
+      isPaused: this.isPaused,
       isProcessing: this.isProcessing,
       currentProvider: this.currentProvider,
-      config: { ...this.config },
+      providerConfig: this.getProviderConfig(this.currentProvider),
+      config: { 
+        ...this.config,
+        apiKeys: Object.keys(this.config.apiKeys) // Don't expose actual keys
+      },
       queueLength: this.processingQueue.length,
       bufferLength: this.transcriptionBuffer.length,
+      streamingBuffer: this.streamingBuffer,
+      hasStreamingTimer: !!this.streamingTimer,
       metrics: this.getMetrics(),
+      networkStatus: this.cloudSTTService.getNetworkStatus(),
+      availableProviders: this.getAvailableProviders(),
       localSTTStatus: this.localSTTService ? this.localSTTService.getStatus() : null
     };
   }
@@ -821,14 +1331,28 @@ class TranscriptionEngine {
   cleanup() {
     this.stopTranscription();
     
+    // Clear streaming timer
+    if (this.streamingTimer) {
+      clearTimeout(this.streamingTimer);
+      this.streamingTimer = null;
+    }
+    
     if (this.localSTTService) {
       this.localSTTService.cleanup();
     }
     
+    if (this.cloudSTTService) {
+      this.cloudSTTService.cleanup();
+    }
+    
     this.transcriptionBuffer = [];
     this.processingQueue = [];
+    this.streamingBuffer = '';
+    this.currentSegment = null;
+    this.segmentBuffer = '';
     this.eventListeners.clear();
     this.isInitialized = false;
+    this.isPaused = false;
     
     console.log('Transcription engine cleaned up');
   }
