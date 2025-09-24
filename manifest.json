@@ -1,0 +1,61 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "teams-meeting-transcription-app",
+  "packageName": "com.yourcompany.teams.transcription",
+  "developer": {
+    "name": "Your Company Name",
+    "websiteUrl": "https://yourcompany.com",
+    "privacyUrl": "https://yourcompany.com/privacy",
+    "termsOfUseUrl": "https://yourcompany.com/terms"
+  },
+  "icons": {
+    "color": "assets/icon-color.png",
+    "outline": "assets/icon-outline.png"
+  },
+  "name": {
+    "short": "Meeting Transcription",
+    "full": "Teams Meeting Transcription with AI Summary"
+  },
+  "description": {
+    "short": "Real-time meeting transcription and AI-powered summaries",
+    "full": "Automatically transcribe Teams meetings with speaker identification and generate intelligent summaries based on meeting agenda. Supports local and cloud STT services."
+  },
+  "accentColor": "#FFFFFF",
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://localhost:3000/config",
+      "canUpdateConfiguration": true,
+      "scopes": [
+        "team",
+        "groupchat"
+      ]
+    }
+  ],
+  "staticTabs": [
+    {
+      "entityId": "transcription-tab",
+      "name": "Transcription",
+      "contentUrl": "https://localhost:3000/tab",
+      "websiteUrl": "https://localhost:3000/tab",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "devicePermissions": [
+    "media"
+  ],
+  "validDomains": [
+    "localhost:3000"
+  ],
+  "webApplicationInfo": {
+    "id": "your-app-id-here",
+    "resource": "https://graph.microsoft.com"
+  }
+}

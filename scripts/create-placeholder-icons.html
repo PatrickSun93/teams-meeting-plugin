@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Teams App Icons</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        canvas { border: 1px solid #ccc; margin: 10px; }
+        .icon-section { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; background: #0078d4; color: white; border: none; cursor: pointer; }
+        button:hover { background: #106ebe; }
+    </style>
+</head>
+<body>
+    <h1>Teams App Icon Generator</h1>
+    <p>This tool creates placeholder icons for the Teams Meeting Transcription app.</p>
+    
+    <div class="icon-section">
+        <h3>Color Icon (192x192)</h3>
+        <canvas id="colorIcon" width="192" height="192"></canvas>
+        <br>
+        <button onclick="downloadColorIcon()">Download icon-color.png</button>
+    </div>
+    
+    <div class="icon-section">
+        <h3>Outline Icon (32x32)</h3>
+        <canvas id="outlineIcon" width="32" height="32"></canvas>
+        <br>
+        <button onclick="downloadOutlineIcon()">Download icon-outline.png</button>
+    </div>
+
+    <script>
+        // Create color icon (192x192)
+        function createColorIcon() {
+            const canvas = document.getElementById('colorIcon');
+            const ctx = canvas.getContext('2d');
+            
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, 192, 192);
+            gradient.addColorStop(0, '#0078d4');
+            gradient.addColorStop(1, '#106ebe');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 192, 192);
+            
+            // Microphone icon
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 8;
+            
+            // Microphone body
+            ctx.beginPath();
+            ctx.roundRect(76, 60, 40, 60, 20);
+            ctx.fill();
+            
+            // Microphone stand
+            ctx.beginPath();
+            ctx.moveTo(96, 120);
+            ctx.lineTo(96, 150);
+            ctx.stroke();
+            
+            // Base
+            ctx.beginPath();
+            ctx.moveTo(76, 150);
+            ctx.lineTo(116, 150);
+            ctx.stroke();
+            
+            // Sound waves
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(96, 90, 50, -0.5, 0.5);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.arc(96, 90, 65, -0.3, 0.3);
+            ctx.stroke();
+        }
+        
+        // Create outline icon (32x32)
+        function createOutlineIcon() {
+            const canvas = document.getElementById('outlineIcon');
+            const ctx = canvas.getContext('2d');
+            
+            // Transparent background
+            ctx.clearRect(0, 0, 32, 32);
+            
+            // White microphone icon
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            
+            // Microphone body
+            ctx.beginPath();
+            ctx.roundRect(12, 8, 8, 12, 4);
+            ctx.fill();
+            
+            // Microphone stand
+            ctx.beginPath();
+            ctx.moveTo(16, 20);
+            ctx.lineTo(16, 26);
+            ctx.stroke();
+            
+            // Base
+            ctx.beginPath();
+            ctx.moveTo(12, 26);
+            ctx.lineTo(20, 26);
+            ctx.stroke();
+            
+            // Sound wave
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(16, 14, 10, -0.3, 0.3);
+            ctx.stroke();
+        }
+        
+        // Download functions
+        function downloadColorIcon() {
+            const canvas = document.getElementById('colorIcon');
+            const link = document.createElement('a');
+            link.download = 'icon-color.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+        
+        function downloadOutlineIcon() {
+            const canvas = document.getElementById('outlineIcon');
+            const link = document.createElement('a');
+            link.download = 'icon-outline.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+        
+        // Create icons on page load
+        window.onload = function() {
+            createColorIcon();
+            createOutlineIcon();
+        };
+    </script>
+</body>
+</html>
