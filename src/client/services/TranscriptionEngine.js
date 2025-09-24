@@ -2,6 +2,7 @@
 import LocalSTTService from './LocalSTTService.js';
 import CloudSTTService from './CloudSTTService.js';
 import SpeakerIdentificationService from './SpeakerIdentificationService.js';
+import { errorHandler, ErrorCode, ErrorCategory } from './ErrorHandler.js';
 
 class TranscriptionEngine {
   constructor() {
@@ -475,28 +476,48 @@ class TranscriptionEngine {
    * Transcribe using local STT service
    */
   async transcribeWithLocal(audioData) {
-    return await this.localSTTService.transcribe(audioData, {
-      language: this.config.language,
-      return_timestamps: true
-    });
+    try {
+      return await this.localSTTService.transcribe(audioData, {
+        language: this.config.language,
+        return_timestamps: true
+      });
+    } catch (error) {
+      await errorHandler.handleTranscriptionError(error, {
+        component: 'transcription',
+        provider: 'local',
+        audioDataSize: audioData?.length || 0
+      });
+      throw error;
+    }
   }
 
   /**
    * Transcribe using cloud STT service
    */
   async transcribeWithCloud(audioData, provider) {
-    const apiKey = this.config.apiKeys[provider];
-    if (!apiKey) {
-      throw new Error(`API key not configured for provider: ${provider}`);
+    try {
+      const apiKey = this.config.apiKeys[provider];
+      if (!apiKey) {
+        const error = new Error(`API key not configured for provider: ${provider}`);
+        error.code = ErrorCode.INVALID_API_KEY;
+        throw error;
+      }
+
+      const cloudConfig = {
+        apiKey: apiKey,
+        language: this.config.language,
+        ...this.config.cloudConfig[provider]
+      };
+
+      return await this.cloudSTTService.transcribe(audioData, provider, cloudConfig);
+    } catch (error) {
+      await errorHandler.handleTranscriptionError(error, {
+        component: 'transcription',
+        provider,
+        audioDataSize: audioData?.length || 0
+      });
+      throw error;
     }
-
-    const cloudConfig = {
-      apiKey: apiKey,
-      language: this.config.language,
-      ...this.config.cloudConfig[provider]
-    };
-
-    return await this.cloudSTTService.transcribe(audioData, provider, cloudConfig);
   }
 
   /**
@@ -505,10 +526,18 @@ class TranscriptionEngine {
   async handleTranscriptionFailure(error, processingTime, queueItem) {
     console.error(`Transcription failed with ${this.currentProvider}:`, error);
     
-    // Check if we should attempt fallback
-    if (this.config.enableFallback && this.shouldAttemptFallback(error, queueItem)) {
+    // Use error handler for comprehensive error management
+    const recoveryResult = await errorHandler.handleTranscriptionError(error, {
+      component: 'transcription',
+      provider: this.currentProvider,
+      processingTime,
+      queueItem
+    });
+
+    // If error handler didn't recover, attempt our own fallback
+    if (!recoveryResult.success && this.config.enableFallback && this.shouldAttemptFallback(error, queueItem)) {
       await this.attemptFallback(queueItem, error);
-    } else {
+    } else if (!recoveryResult.success) {
       this.handleTranscriptionError(error.message, processingTime, queueItem);
     }
   }

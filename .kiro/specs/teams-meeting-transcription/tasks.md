@@ -120,7 +120,7 @@
   - Write tests for transcript management
   - _Requirements: 1.5, 5.3, 5.5_
 
-- [-] 14. Implement error handling and recovery
+- [x] 14. Implement error handling and recovery
   - Create comprehensive error handling for all components
   - Implement graceful degradation when services fail
   - Add user notification system for errors and warnings
@@ -130,7 +130,7 @@
   - Write error handling tests and failure scenarios
   - _Requirements: 1.4, 6.4, 5.4_
 
-- [ ] 15. Create comprehensive plugin UI
+- [-] 15. Create comprehensive plugin UI
   - Design and implement main plugin interface
   - Create settings and configuration panels
   - Add real-time transcription display with speaker labels

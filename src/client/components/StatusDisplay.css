@@ -1,0 +1,179 @@
+/* Status Display Styles */
+.status-display {
+  background: white;
+  border: 1px solid #e1e5e9;
+  border-left: 4px solid #e1e5e9;
+  padding: 16px 20px;
+  margin: 0 0 16px 0;
+  transition: all 0.3s ease;
+}
+
+.status-display.error {
+  background: #fef2f2;
+  border-color: #ef4444;
+  border-left-color: #ef4444;
+}
+
+.status-display.active {
+  background: #f0fdf4;
+  border-color: #22c55e;
+  border-left-color: #22c55e;
+}
+
+.status-display.ready {
+  background: #f0fdf4;
+  border-color: #22c55e;
+  border-left-color: #22c55e;
+}
+
+.status-display.waiting {
+  background: #fffbeb;
+  border-color: #f59e0b;
+  border-left-color: #f59e0b;
+}
+
+.status-display.inactive {
+  background: #f8f9fa;
+  border-color: #6b7280;
+  border-left-color: #6b7280;
+}
+
+.status-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.status-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-message {
+  font-size: 14px;
+  font-weight: 500;
+  color: #323130;
+}
+
+.status-detail {
+  font-size: 12px;
+  color: #605e5c;
+}
+
+.error-dismiss {
+  background: none;
+  border: none;
+  color: #ef4444;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+}
+
+.error-dismiss:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.audio-status {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e1e5e9;
+}
+
+.audio-metrics {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.metric {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.metric-label {
+  color: #605e5c;
+  font-weight: 500;
+}
+
+.metric-value {
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f8f9fa;
+}
+
+.metric-value.good {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.metric-value.poor {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .status-display {
+    padding: 12px 16px;
+  }
+  
+  .status-indicator {
+    gap: 8px;
+  }
+  
+  .status-icon {
+    font-size: 18px;
+  }
+  
+  .status-message {
+    font-size: 13px;
+  }
+  
+  .status-detail {
+    font-size: 11px;
+  }
+  
+  .audio-metrics {
+    gap: 12px;
+  }
+  
+  .metric {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .status-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .error-dismiss {
+    align-self: flex-end;
+  }
+  
+  .audio-metrics {
+    flex-direction: column;
+    gap: 8px;
+  }
+}

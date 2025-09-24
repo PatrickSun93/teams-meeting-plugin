@@ -71,7 +71,13 @@
   font-size: 16px;
 }
 
-.config-button {
+.header-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.config-button,
+.diagnostic-button {
   background-color: rgba(255, 255, 255, 0.2);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -86,7 +92,8 @@
   gap: 6px;
 }
 
-.config-button:hover {
+.config-button:hover,
+.diagnostic-button:hover {
   background-color: rgba(255, 255, 255, 0.3);
   border-color: rgba(255, 255, 255, 0.5);
 }

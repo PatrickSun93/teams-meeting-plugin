@@ -26,6 +26,8 @@ const TranscriptManager = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [selectedTranscript, setSelectedTranscript] = useState(null);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
   
@@ -191,6 +193,29 @@ const TranscriptManager = () => {
       setShowShareModal(false);
     } catch (err) {
       setError(`Share failed: ${err.message}`);
+    }
+  };
+
+  // View functionality
+  const handleView = (transcript) => {
+    setSelectedTranscript(transcript);
+    setShowViewModal(true);
+  };
+
+  // Edit functionality
+  const handleEdit = (transcript) => {
+    setSelectedTranscript(transcript);
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async (editedTranscript) => {
+    try {
+      await storageService.updateTranscript(editedTranscript.id, editedTranscript);
+      await loadTranscripts();
+      setShowEditModal(false);
+      setSelectedTranscript(null);
+    } catch (err) {
+      setError(`Save failed: ${err.message}`);
     }
   };
 
@@ -390,7 +415,8 @@ const TranscriptManager = () => {
               transcript={transcript}
               selected={selectedTranscripts.has(transcript.id)}
               onSelect={() => toggleTranscriptSelection(transcript.id)}
-              onView={() => setSelectedTranscript(transcript)}
+              onView={() => handleView(transcript)}
+              onEdit={() => handleEdit(transcript)}
               onExport={() => {
                 setSelectedTranscript(transcript);
                 setShowExportModal(true);
@@ -424,6 +450,33 @@ const TranscriptManager = () => {
           onClose={() => setShowShareModal(false)}
         />
       )}
+
+      {/* View Modal */}
+      {showViewModal && selectedTranscript && (
+        <TranscriptViewModal
+          transcript={selectedTranscript}
+          onClose={() => {
+            setShowViewModal(false);
+            setSelectedTranscript(null);
+          }}
+          onEdit={() => {
+            setShowViewModal(false);
+            setShowEditModal(true);
+          }}
+        />
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && selectedTranscript && (
+        <TranscriptEditModal
+          transcript={selectedTranscript}
+          onSave={handleSaveEdit}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedTranscript(null);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -437,8 +490,21 @@ const TranscriptItem = ({
   onExport, 
   onShare, 
   onDelete,
+  onEdit,
   viewMode 
 }) => {
+  const formatDate = (date) => {
+    return new Date(date).toLocaleString();
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   return (
     <div className={`transcript-item ${selected ? 'selected' : ''} ${viewMode}`}>
       <div className="transcript-checkbox">
@@ -458,6 +524,9 @@ const TranscriptItem = ({
           <span className="platform">{transcript.platform}</span>
           <span className="date">{formatDate(transcript.createdAt)}</span>
           <span className="size">{formatFileSize(transcript.size || 0)}</span>
+          {transcript.segments && (
+            <span className="segments">{transcript.segments.length} segments</span>
+          )}
         </div>
         {transcript.tags && transcript.tags.length > 0 && (
           <div className="transcript-tags">
@@ -466,10 +535,16 @@ const TranscriptItem = ({
             ))}
           </div>
         )}
+        {transcript.summary && (
+          <div className="transcript-preview">
+            {transcript.summary.substring(0, 100)}...
+          </div>
+        )}
       </div>
 
       <div className="transcript-actions">
         <button onClick={onView} title="View">👁</button>
+        <button onClick={onEdit} title="Edit">✏️</button>
         <button onClick={onExport} title="Export">📥</button>
         <button onClick={onShare} title="Share">🔗</button>
         <button onClick={onDelete} title="Delete" className="delete">🗑</button>
@@ -662,6 +737,235 @@ const ShareModal = ({ transcript, onShare, onClose }) => {
           <button onClick={onClose}>Cancel</button>
           <button onClick={handleSubmit} className="primary">
             Create Share Link
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Transcript view modal component
+const TranscriptViewModal = ({ transcript, onClose, onEdit }) => {
+  const formatDate = (date) => {
+    return new Date(date).toLocaleString();
+  };
+
+  const formatDuration = (segments) => {
+    if (!segments || segments.length === 0) return 'Unknown';
+    const lastSegment = segments[segments.length - 1];
+    const totalSeconds = lastSegment.endTime || 0;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal view-modal large">
+        <div className="modal-header">
+          <h3>{transcript.title}</h3>
+          <div className="header-actions">
+            <button onClick={onEdit} className="edit-btn">✏️ Edit</button>
+            <button onClick={onClose}>×</button>
+          </div>
+        </div>
+
+        <div className="modal-body">
+          <div className="transcript-metadata">
+            <div className="metadata-grid">
+              <div className="metadata-item">
+                <label>Platform:</label>
+                <span>{transcript.platform}</span>
+              </div>
+              <div className="metadata-item">
+                <label>Date:</label>
+                <span>{formatDate(transcript.createdAt)}</span>
+              </div>
+              <div className="metadata-item">
+                <label>Duration:</label>
+                <span>{formatDuration(transcript.segments)}</span>
+              </div>
+              <div className="metadata-item">
+                <label>Segments:</label>
+                <span>{transcript.segments?.length || 0}</span>
+              </div>
+              {transcript.encrypted && (
+                <div className="metadata-item">
+                  <label>Security:</label>
+                  <span>🔒 Encrypted</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {transcript.summary && (
+            <div className="transcript-summary">
+              <h4>Summary</h4>
+              <div className="summary-content">
+                {transcript.summary}
+              </div>
+            </div>
+          )}
+
+          <div className="transcript-content">
+            <h4>Transcript</h4>
+            <div className="segments-container">
+              {transcript.segments && transcript.segments.length > 0 ? (
+                transcript.segments.map((segment, index) => (
+                  <div key={index} className="transcript-segment">
+                    <div className="segment-header">
+                      <span className="speaker-name">
+                        {segment.speakerName || `Speaker ${segment.speakerId || 'Unknown'}`}
+                      </span>
+                      <span className="segment-time">
+                        {new Date(segment.startTime * 1000).toISOString().substr(14, 5)}
+                      </span>
+                    </div>
+                    <div className="segment-text">
+                      {segment.text}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="no-segments">
+                  No transcript segments available
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button onClick={onEdit}>Edit Transcript</button>
+          <button onClick={onClose} className="primary">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Transcript edit modal component
+const TranscriptEditModal = ({ transcript, onSave, onClose }) => {
+  const [editedTranscript, setEditedTranscript] = useState({
+    ...transcript,
+    segments: transcript.segments ? [...transcript.segments] : []
+  });
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const handleTitleChange = (newTitle) => {
+    setEditedTranscript(prev => ({ ...prev, title: newTitle }));
+    setHasChanges(true);
+  };
+
+  const handleSummaryChange = (newSummary) => {
+    setEditedTranscript(prev => ({ ...prev, summary: newSummary }));
+    setHasChanges(true);
+  };
+
+  const handleSegmentChange = (index, field, value) => {
+    const newSegments = [...editedTranscript.segments];
+    newSegments[index] = { ...newSegments[index], [field]: value };
+    setEditedTranscript(prev => ({ ...prev, segments: newSegments }));
+    setHasChanges(true);
+  };
+
+  const handleDeleteSegment = (index) => {
+    const newSegments = editedTranscript.segments.filter((_, i) => i !== index);
+    setEditedTranscript(prev => ({ ...prev, segments: newSegments }));
+    setHasChanges(true);
+  };
+
+  const handleSave = () => {
+    onSave(editedTranscript);
+  };
+
+  const handleClose = () => {
+    if (hasChanges && !confirm('You have unsaved changes. Are you sure you want to close?')) {
+      return;
+    }
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal edit-modal large">
+        <div className="modal-header">
+          <h3>Edit Transcript</h3>
+          <button onClick={handleClose}>×</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="edit-section">
+            <label>Title:</label>
+            <input
+              type="text"
+              value={editedTranscript.title}
+              onChange={(e) => handleTitleChange(e.target.value)}
+              className="title-input"
+            />
+          </div>
+
+          <div className="edit-section">
+            <label>Summary:</label>
+            <textarea
+              value={editedTranscript.summary || ''}
+              onChange={(e) => handleSummaryChange(e.target.value)}
+              className="summary-input"
+              rows={4}
+              placeholder="Enter meeting summary..."
+            />
+          </div>
+
+          <div className="edit-section">
+            <label>Transcript Segments:</label>
+            <div className="segments-editor">
+              {editedTranscript.segments && editedTranscript.segments.length > 0 ? (
+                editedTranscript.segments.map((segment, index) => (
+                  <div key={index} className="segment-editor">
+                    <div className="segment-controls">
+                      <input
+                        type="text"
+                        value={segment.speakerName || `Speaker ${segment.speakerId || 'Unknown'}`}
+                        onChange={(e) => handleSegmentChange(index, 'speakerName', e.target.value)}
+                        className="speaker-input"
+                        placeholder="Speaker name"
+                      />
+                      <span className="segment-time">
+                        {new Date(segment.startTime * 1000).toISOString().substr(14, 5)}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteSegment(index)}
+                        className="delete-segment"
+                        title="Delete segment"
+                      >
+                        🗑
+                      </button>
+                    </div>
+                    <textarea
+                      value={segment.text}
+                      onChange={(e) => handleSegmentChange(index, 'text', e.target.value)}
+                      className="segment-text-input"
+                      rows={2}
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className="no-segments">
+                  No transcript segments to edit
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button onClick={handleClose}>Cancel</button>
+          <button 
+            onClick={handleSave} 
+            className="primary"
+            disabled={!hasChanges}
+          >
+            Save Changes
           </button>
         </div>
       </div>

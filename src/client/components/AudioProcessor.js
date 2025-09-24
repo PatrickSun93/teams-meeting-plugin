@@ -1,4 +1,6 @@
 // Audio Processor - Handles audio capture, preprocessing, and quality assessment
+import { errorHandler, ErrorCode, ErrorCategory } from '../services/ErrorHandler.js';
+
 class AudioProcessor {
   constructor() {
     this.audioContext = null;
@@ -49,7 +51,9 @@ class AudioProcessor {
    */
   async startCapture(mediaStream) {
     if (!this.audioContext) {
-      throw new Error('Audio processor not initialized');
+      const error = new Error('Audio processor not initialized');
+      await errorHandler.handleAudioError(error, { component: 'audio-processor' });
+      throw error;
     }
 
     if (this.isCapturing) {
@@ -79,6 +83,15 @@ class AudioProcessor {
       
     } catch (error) {
       console.error('Failed to start audio capture:', error);
+      
+      // Use error handler for comprehensive error management
+      await errorHandler.handleAudioError(error, {
+        component: 'audio-processor',
+        operation: 'startCapture',
+        mediaStreamActive: mediaStream?.active,
+        audioContextState: this.audioContext?.state
+      });
+      
       throw new Error(`Audio capture failed: ${error.message}`);
     }
   }
