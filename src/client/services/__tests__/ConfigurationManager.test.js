@@ -481,3 +481,353 @@ describe('ConfigurationManager', () => {
     });
   });
 });
+
+  describe('Enhanced Prompt Management', () => {
+    test('should get all user prompts', async () => {
+      const configManager = new ConfigurationManager();
+      
+      // Mock prompts in database
+      const mockPrompts = [
+        {
+          id: 'prompt1',
+          userId: 'testuser',
+          name: 'Default',
+          prompt: 'Default prompt',
+          isDefault: true,
+          createdAt: '2023-01-01T00:00:00.000Z',
+          updatedAt: '2023-01-01T00:00:00.000Z'
+        },
+        {
+          id: 'prompt2',
+          userId: 'testuser',
+          name: 'Custom',
+          prompt: 'Custom prompt',
+          isDefault: false,
+          createdAt: '2023-01-02T00:00:00.000Z',
+          updatedAt: '2023-01-02T00:00:00.000Z'
+        }
+      ];
+
+      // Mock IndexedDB
+      const mockTransaction = {
+        objectStore: jest.fn().mockReturnValue({
+          index: jest.fn().mockReturnValue({
+            getAll: jest.fn().mockReturnValue({
+              onsuccess: null,
+              onerror: null,
+              result: mockPrompts
+            })
+          })
+        })
+      };
+
+      configManager.db = {
+        transaction: jest.fn().mockReturnValue(mockTransaction)
+      };
+      configManager.initialized = true;
+
+      const prompts = await configManager.getUserPrompts('testuser');
+
+      // Trigger success callback
+      const getAllRequest = mockTransaction.objectStore().index().getAll();
+      getAllRequest.onsuccess();
+
+      expect(prompts).toEqual(mockPrompts);
+    });
+
+    test('should create default prompt if none exist', async () => {
+      const configManager = new ConfigurationManager();
+      
+      // Mock empty prompts array
+      const mockTransaction = {
+        objectStore: jest.fn().mockReturnValue({
+          index: jest.fn().mockReturnValue({
+            getAll: jest.fn().mockReturnValue({
+              onsuccess: null,
+              onerror: null,
+              result: []
+            })
+          })
+        })
+      };
+
+      configManager.db = {
+        transaction: jest.fn().mockReturnValue(mockTransaction)
+      };
+      configManager.initialized = true;
+
+      const prompts = await configManager.getUserPrompts('testuser');
+
+      // Trigger success callback
+      const getAllRequest = mockTransaction.objectStore().index().getAll();
+      getAllRequest.onsuccess();
+
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0].name).toBe('Default');
+      expect(prompts[0].isDefault).toBe(true);
+    });
+
+    test('should save prompt with validation', async () => {
+      const configManager = new ConfigurationManager();
+      
+      const promptData = {
+        userId: 'testuser',
+        name: 'Test Prompt',
+        prompt: 'Test content',
+        description: 'Test description',
+        tags: ['test'],
+        isDefault: false
+      };
+
+      // Mock IndexedDB
+      const mockStore = {
+        put: jest.fn().mockReturnValue({
+          onsuccess: null,
+          onerror: null
+        }),
+        index: jest.fn().mockReturnValue({
+          getAll: jest.fn().mockReturnValue({
+            onsuccess: null,
+            onerror: null,
+            result: []
+          })
+        })
+      };
+
+      const mockTransaction = {
+        objectStore: jest.fn().mockReturnValue(mockStore)
+      };
+
+      configManager.db = {
+        transaction: jest.fn().mockReturnValue(mockTransaction)
+      };
+      configManager.initialized = true;
+
+      const savedPrompt = await configManager.savePrompt(promptData);
+
+      // Trigger success callbacks
+      const getAllRequest = mockStore.index().getAll();
+      getAllRequest.onsuccess();
+      
+      const putRequest = mockStore.put();
+      putRequest.onsuccess();
+
+      expect(savedPrompt.name).toBe('Test Prompt');
+      expect(savedPrompt.userId).toBe('testuser');
+      expect(savedPrompt.id).toBeDefined();
+    });
+
+    test('should validate prompt data', () => {
+      const configManager = new ConfigurationManager();
+
+      // Valid prompt
+      const validPrompt = {
+        name: 'Valid Prompt',
+        prompt: 'Valid content',
+        description: 'Valid description',
+        tags: ['tag1', 'tag2']
+      };
+
+      const validResult = configManager.validatePrompt(validPrompt);
+      expect(validResult.isValid).toBe(true);
+      expect(validResult.errors).toHaveLength(0);
+
+      // Invalid prompt - missing name
+      const invalidPrompt = {
+        prompt: 'Valid content'
+      };
+
+      const invalidResult = configManager.validatePrompt(invalidPrompt);
+      expect(invalidResult.isValid).toBe(false);
+      expect(invalidResult.errors).toContain('Prompt name is required');
+
+      // Invalid prompt - empty content
+      const emptyContentPrompt = {
+        name: 'Valid Name',
+        prompt: ''
+      };
+
+      const emptyResult = configManager.validatePrompt(emptyContentPrompt);
+      expect(emptyResult.isValid).toBe(false);
+      expect(emptyResult.errors).toContain('Prompt content is required');
+
+      // Invalid prompt - content too long
+      const longContentPrompt = {
+        name: 'Valid Name',
+        prompt: 'x'.repeat(10001)
+      };
+
+      const longResult = configManager.validatePrompt(longContentPrompt);
+      expect(longResult.isValid).toBe(false);
+      expect(longResult.errors).toContain('Prompt content is too long (maximum 10,000 characters)');
+    });
+
+    test('should delete prompt', async () => {
+      const configManager = new ConfigurationManager();
+      
+      // Mock IndexedDB
+      const mockStore = {
+        delete: jest.fn().mockReturnValue({
+          onsuccess: null,
+          onerror: null
+        })
+      };
+
+      const mockTransaction = {
+        objectStore: jest.fn().mockReturnValue(mockStore)
+      };
+
+      configManager.db = {
+        transaction: jest.fn().mockReturnValue(mockTransaction)
+      };
+      configManager.initialized = true;
+
+      const result = await configManager.deletePrompt('prompt123');
+
+      // Trigger success callback
+      const deleteRequest = mockStore.delete();
+      deleteRequest.onsuccess();
+
+      expect(result).toBe(true);
+      expect(mockStore.delete).toHaveBeenCalledWith('prompt123');
+    });
+
+    test('should export prompts', async () => {
+      const configManager = new ConfigurationManager();
+      
+      const mockPrompts = [
+        {
+          id: 'prompt1',
+          userId: 'testuser',
+          name: 'Prompt 1',
+          prompt: 'Content 1',
+          description: 'Description 1',
+          tags: ['tag1'],
+          createdAt: '2023-01-01T00:00:00.000Z'
+        }
+      ];
+
+      // Mock getUserPrompts
+      configManager.getUserPrompts = jest.fn().mockResolvedValue(mockPrompts);
+
+      const exportData = await configManager.exportPrompts('testuser');
+      const parsed = JSON.parse(exportData);
+
+      expect(parsed.version).toBe('1.0');
+      expect(parsed.prompts).toHaveLength(1);
+      expect(parsed.prompts[0].name).toBe('Prompt 1');
+      expect(parsed.prompts[0]).not.toHaveProperty('id');
+      expect(parsed.prompts[0]).not.toHaveProperty('userId');
+    });
+
+    test('should import prompts', async () => {
+      const configManager = new ConfigurationManager();
+      
+      const importData = {
+        version: '1.0',
+        prompts: [
+          {
+            name: 'Imported Prompt',
+            prompt: 'Imported content',
+            description: 'Imported description',
+            tags: ['imported']
+          }
+        ]
+      };
+
+      // Mock savePrompt
+      configManager.savePrompt = jest.fn().mockResolvedValue({
+        id: 'new-prompt-id',
+        ...importData.prompts[0],
+        userId: 'testuser'
+      });
+
+      const importedPrompts = await configManager.importPrompts('testuser', importData);
+
+      expect(importedPrompts).toHaveLength(1);
+      expect(configManager.savePrompt).toHaveBeenCalledWith({
+        userId: 'testuser',
+        name: 'Imported Prompt',
+        prompt: 'Imported content',
+        description: 'Imported description',
+        tags: ['imported'],
+        isDefault: false
+      });
+    });
+
+    test('should handle invalid import data', async () => {
+      const configManager = new ConfigurationManager();
+
+      // Invalid JSON
+      await expect(configManager.importPrompts('testuser', 'invalid json'))
+        .rejects.toThrow('Invalid import data format');
+
+      // Missing prompts array
+      await expect(configManager.importPrompts('testuser', { version: '1.0' }))
+        .rejects.toThrow('Import data must contain a prompts array');
+    });
+
+    test('should set default prompt correctly', async () => {
+      const configManager = new ConfigurationManager();
+      
+      const existingPrompts = [
+        {
+          id: 'prompt1',
+          userId: 'testuser',
+          name: 'Prompt 1',
+          isDefault: true,
+          updatedAt: '2023-01-01T00:00:00.000Z'
+        },
+        {
+          id: 'prompt2',
+          userId: 'testuser',
+          name: 'Prompt 2',
+          isDefault: false,
+          updatedAt: '2023-01-01T00:00:00.000Z'
+        }
+      ];
+
+      const mockStore = {
+        put: jest.fn().mockReturnValue({
+          onsuccess: null,
+          onerror: null
+        }),
+        index: jest.fn().mockReturnValue({
+          getAll: jest.fn().mockReturnValue({
+            onsuccess: null,
+            onerror: null,
+            result: existingPrompts
+          })
+        })
+      };
+
+      const mockTransaction = {
+        objectStore: jest.fn().mockReturnValue(mockStore)
+      };
+
+      configManager.db = {
+        transaction: jest.fn().mockReturnValue(mockTransaction)
+      };
+      configManager.initialized = true;
+
+      const newDefaultPrompt = {
+        id: 'prompt3',
+        userId: 'testuser',
+        name: 'New Default',
+        prompt: 'New default content',
+        isDefault: true
+      };
+
+      const savedPrompt = await configManager.savePrompt(newDefaultPrompt);
+
+      // Trigger success callbacks
+      const getAllRequest = mockStore.index().getAll();
+      getAllRequest.onsuccess();
+      
+      const putRequest = mockStore.put();
+      putRequest.onsuccess();
+
+      // Should have called put multiple times to unset other defaults
+      expect(mockStore.put).toHaveBeenCalledTimes(2); // Once for existing default, once for new prompt
+    });
+  });

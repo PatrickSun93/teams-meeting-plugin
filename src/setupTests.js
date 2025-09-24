@@ -1,4 +1,5 @@
 // Jest setup file for testing environment
+import '@testing-library/jest-dom';
 
 // Mock Web Audio API globally
 global.AudioContext = jest.fn(() => ({

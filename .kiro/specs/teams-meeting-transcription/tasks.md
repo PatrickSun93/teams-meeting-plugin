@@ -63,7 +63,7 @@
   - Write tests for transcription engine
   - _Requirements: 1.2, 1.3, 1.4, 1.5_
 
-- [-] 8. Implement basic speaker identification
+- [x] 8. Implement basic speaker identification
   - Create voice pattern analysis using Web Audio API
   - Implement speaker enrollment and recognition system
   - Add speaker labeling in transcription output
@@ -72,7 +72,7 @@
   - Write unit tests for speaker identification
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 9. Create meeting agenda integration
+- [x] 9. Create meeting agenda integration
   - Implement Teams calendar API integration to fetch meeting agenda
   - Create agenda parsing and topic extraction
   - Add agenda item tracking during transcription
@@ -81,7 +81,7 @@
   - Write tests for agenda integration
   - _Requirements: 4.2, 4.5_
 
-- [ ] 10. Implement AI-powered summary generation
+- [x] 10. Implement AI-powered summary generation
   - Create OpenAI GPT integration for summary generation
   - Implement Claude API integration for summaries
   - Add Azure OpenAI service integration
@@ -91,7 +91,7 @@
   - Write tests for summary generation
   - _Requirements: 4.1, 4.3, 4.4, 7.1, 7.3, 7.4_
 
-- [ ] 11. Create custom prompt management system
+- [x] 11. Create custom prompt management system
   - Implement user-specific prompt storage and retrieval
   - Create prompt editing UI with preview functionality
   - Add default prompt templates for different meeting types
@@ -100,7 +100,7 @@
   - Write tests for prompt management
   - _Requirements: 7.2, 7.3, 7.5_
 
-- [ ] 12. Implement Teams chat integration
+- [-] 12. Implement Teams chat integration
   - Create Teams chat API integration for sending messages
   - Implement transcript formatting for chat messages
   - Add message splitting for long transcripts

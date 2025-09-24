@@ -39,8 +39,9 @@ class ConfigurationManager {
         }
 
         if (!db.objectStoreNames.contains('userPrompts')) {
-          const userPromptsStore = db.createObjectStore('userPrompts', { keyPath: 'userId' });
-          userPromptsStore.createIndex('userId', 'userId', { unique: true });
+          const userPromptsStore = db.createObjectStore('userPrompts', { keyPath: 'id' });
+          userPromptsStore.createIndex('userId', 'userId', { unique: false });
+          userPromptsStore.createIndex('name', 'name', { unique: false });
         }
       };
     });
@@ -166,51 +167,257 @@ class ConfigurationManager {
     });
   }
 
-  // Get user's custom prompt
+  // Get user's custom prompt (backward compatibility)
   async getUserPrompt(userId = 'default') {
+    const prompts = await this.getUserPrompts(userId);
+    const defaultPrompt = prompts.find(p => p.isDefault) || prompts[0];
+    return defaultPrompt ? defaultPrompt.prompt : this.getDefaultPrompt();
+  }
+
+  // Save user's custom prompt (backward compatibility)
+  async saveUserPrompt(userId = 'default', prompt) {
+    return this.savePrompt({
+      userId,
+      name: 'Default',
+      prompt,
+      isDefault: true
+    });
+  }
+
+  // Get all prompts for a user
+  async getUserPrompts(userId = 'default') {
     await this.initialize();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['userPrompts'], 'readonly');
       const store = transaction.objectStore('userPrompts');
-      const request = store.get(userId);
+      const index = store.index('userId');
+      const request = index.getAll(userId);
 
       request.onsuccess = () => {
-        const result = request.result;
-        resolve(result ? result.prompt : this.getDefaultPrompt());
+        const prompts = request.result || [];
+        // If no prompts exist, create a default one
+        if (prompts.length === 0) {
+          const defaultPrompt = {
+            id: `${userId}_default_${Date.now()}`,
+            userId,
+            name: 'Default',
+            prompt: this.getDefaultPrompt(),
+            isDefault: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          prompts.push(defaultPrompt);
+        }
+        resolve(prompts);
       };
 
       request.onerror = () => {
-        reject(new Error('Failed to retrieve user prompt'));
+        reject(new Error('Failed to retrieve user prompts'));
       };
     });
   }
 
-  // Save user's custom prompt
-  async saveUserPrompt(userId = 'default', prompt) {
+  // Save a prompt
+  async savePrompt(promptData) {
     await this.initialize();
 
-    if (!prompt || typeof prompt !== 'string') {
-      throw new Error('Invalid prompt');
+    // Validate prompt data
+    const validation = this.validatePrompt(promptData);
+    if (!validation.isValid) {
+      throw new Error(`Invalid prompt: ${validation.errors.join(', ')}`);
     }
+
+    const prompt = {
+      id: promptData.id || `${promptData.userId}_${Date.now()}`,
+      userId: promptData.userId || 'default',
+      name: promptData.name,
+      prompt: promptData.prompt,
+      description: promptData.description || '',
+      tags: promptData.tags || [],
+      isDefault: promptData.isDefault || false,
+      isShared: promptData.isShared || false,
+      createdAt: promptData.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['userPrompts'], 'readwrite');
       const store = transaction.objectStore('userPrompts');
-      const request = store.put({
-        userId,
-        prompt,
-        updatedAt: new Date().toISOString()
-      });
+      
+      // If this is being set as default, unset other defaults for this user
+      if (prompt.isDefault) {
+        const index = store.index('userId');
+        const getAllRequest = index.getAll(prompt.userId);
+        
+        getAllRequest.onsuccess = () => {
+          const existingPrompts = getAllRequest.result;
+          const updatePromises = existingPrompts
+            .filter(p => p.isDefault && p.id !== prompt.id)
+            .map(p => {
+              p.isDefault = false;
+              p.updatedAt = new Date().toISOString();
+              return store.put(p);
+            });
+
+          // Wait for all updates to complete, then save the new prompt
+          Promise.all(updatePromises).then(() => {
+            const saveRequest = store.put(prompt);
+            
+            saveRequest.onsuccess = () => {
+              resolve(prompt);
+            };
+            
+            saveRequest.onerror = () => {
+              reject(new Error('Failed to save prompt'));
+            };
+          });
+        };
+        
+        getAllRequest.onerror = () => {
+          reject(new Error('Failed to update existing prompts'));
+        };
+      } else {
+        const request = store.put(prompt);
+        
+        request.onsuccess = () => {
+          resolve(prompt);
+        };
+        
+        request.onerror = () => {
+          reject(new Error('Failed to save prompt'));
+        };
+      }
+    });
+  }
+
+  // Delete a prompt
+  async deletePrompt(promptId) {
+    await this.initialize();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['userPrompts'], 'readwrite');
+      const store = transaction.objectStore('userPrompts');
+      const request = store.delete(promptId);
 
       request.onsuccess = () => {
-        resolve(prompt);
+        resolve(true);
       };
 
       request.onerror = () => {
-        reject(new Error('Failed to save user prompt'));
+        reject(new Error('Failed to delete prompt'));
       };
     });
+  }
+
+  // Get prompt by ID
+  async getPromptById(promptId) {
+    await this.initialize();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['userPrompts'], 'readonly');
+      const store = transaction.objectStore('userPrompts');
+      const request = store.get(promptId);
+
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+
+      request.onerror = () => {
+        reject(new Error('Failed to retrieve prompt'));
+      };
+    });
+  }
+
+  // Export prompts for sharing
+  async exportPrompts(userId = 'default', promptIds = null) {
+    const allPrompts = await this.getUserPrompts(userId);
+    const promptsToExport = promptIds 
+      ? allPrompts.filter(p => promptIds.includes(p.id))
+      : allPrompts;
+
+    const exportData = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      prompts: promptsToExport.map(p => ({
+        name: p.name,
+        prompt: p.prompt,
+        description: p.description,
+        tags: p.tags,
+        createdAt: p.createdAt
+      }))
+    };
+
+    return JSON.stringify(exportData, null, 2);
+  }
+
+  // Import prompts from exported data
+  async importPrompts(userId = 'default', importData) {
+    let data;
+    
+    try {
+      data = typeof importData === 'string' ? JSON.parse(importData) : importData;
+    } catch (error) {
+      throw new Error('Invalid import data format');
+    }
+
+    if (!data.prompts || !Array.isArray(data.prompts)) {
+      throw new Error('Import data must contain a prompts array');
+    }
+
+    const importedPrompts = [];
+    
+    for (const promptData of data.prompts) {
+      try {
+        const prompt = await this.savePrompt({
+          userId,
+          name: promptData.name,
+          prompt: promptData.prompt,
+          description: promptData.description,
+          tags: promptData.tags,
+          isDefault: false // Imported prompts are never default
+        });
+        importedPrompts.push(prompt);
+      } catch (error) {
+        console.warn(`Failed to import prompt "${promptData.name}":`, error);
+      }
+    }
+
+    return importedPrompts;
+  }
+
+  // Validate prompt data
+  validatePrompt(promptData) {
+    const errors = [];
+
+    if (!promptData.name || typeof promptData.name !== 'string' || promptData.name.trim().length === 0) {
+      errors.push('Prompt name is required');
+    }
+
+    if (!promptData.prompt || typeof promptData.prompt !== 'string' || promptData.prompt.trim().length === 0) {
+      errors.push('Prompt content is required');
+    }
+
+    if (promptData.prompt && promptData.prompt.length > 10000) {
+      errors.push('Prompt content is too long (maximum 10,000 characters)');
+    }
+
+    if (promptData.name && promptData.name.length > 100) {
+      errors.push('Prompt name is too long (maximum 100 characters)');
+    }
+
+    if (promptData.description && promptData.description.length > 500) {
+      errors.push('Prompt description is too long (maximum 500 characters)');
+    }
+
+    if (promptData.tags && (!Array.isArray(promptData.tags) || promptData.tags.some(tag => typeof tag !== 'string'))) {
+      errors.push('Tags must be an array of strings');
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
   }
 
   // Get default configuration

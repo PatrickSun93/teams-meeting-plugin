@@ -1,15 +1,18 @@
 // Transcription Engine - Orchestrates STT services and manages transcription workflow
 import LocalSTTService from './LocalSTTService.js';
 import CloudSTTService from './CloudSTTService.js';
+import SpeakerIdentificationService from './SpeakerIdentificationService.js';
 
 class TranscriptionEngine {
   constructor() {
     this.localSTTService = new LocalSTTService();
     this.cloudSTTService = new CloudSTTService();
+    this.speakerIdentificationService = new SpeakerIdentificationService();
     this.isInitialized = false;
     this.isTranscribing = false;
     this.isPaused = false;
     this.currentProvider = 'local';
+    this.speakerIdentificationEnabled = true;
     
     // Configuration
     this.config = {
@@ -23,7 +26,13 @@ class TranscriptionEngine {
       cloudConfig: {},
       realTimeMode: true,
       bufferSize: 5,
-      outputDelay: 2000
+      outputDelay: 2000,
+      speakerIdentification: {
+        enabled: true,
+        confidenceThreshold: 0.6,
+        handleOverlappingSpeech: true,
+        trackConsistency: true
+      }
     };
     
     // Transcription state
@@ -84,12 +93,20 @@ class TranscriptionEngine {
       // Set up cloud STT listeners
       this.setupCloudSTTListeners();
       
+      // Initialize speaker identification if enabled
+      if (this.config.speakerIdentification.enabled) {
+        await this.speakerIdentificationService.initialize();
+        this.setupSpeakerIdentificationListeners();
+        console.log('Speaker identification service initialized');
+      }
+      
       this.isInitialized = true;
       console.log('Transcription engine initialized successfully');
       
       this.notifyListeners('initialized', {
         provider: this.currentProvider,
-        config: this.config
+        config: this.config,
+        speakerIdentificationEnabled: this.config.speakerIdentification.enabled
       });
       
       return true;
@@ -133,6 +150,27 @@ class TranscriptionEngine {
       if (!data.isOnline && this.isTranscribing && this.isCloudProvider(this.currentProvider)) {
         this.handleNetworkFailure();
       }
+    });
+  }
+
+  /**
+   * Set up event listeners for speaker identification service
+   */
+  setupSpeakerIdentificationListeners() {
+    this.speakerIdentificationService.addEventListener('speakerIdentified', (data) => {
+      this.notifyListeners('speakerIdentified', data);
+    });
+    
+    this.speakerIdentificationService.addEventListener('speakerChanged', (data) => {
+      this.notifyListeners('speakerChanged', data);
+    });
+    
+    this.speakerIdentificationService.addEventListener('newSpeakerDetected', (data) => {
+      this.notifyListeners('newSpeakerDetected', data);
+    });
+    
+    this.speakerIdentificationService.addEventListener('speakerEnrolled', (data) => {
+      this.notifyListeners('speakerEnrolled', data);
     });
   }
 
@@ -377,6 +415,23 @@ class TranscriptionEngine {
         return;
       }
       
+      // Perform speaker identification if enabled
+      let speakerInfo = null;
+      if (this.config.speakerIdentification.enabled && this.speakerIdentificationService.isInitialized) {
+        try {
+          speakerInfo = await this.speakerIdentificationService.identifySpeaker(queueItem.audioData);
+          console.log(`Speaker identified: ${speakerInfo.speakerId} (confidence: ${speakerInfo.confidence})`);
+        } catch (error) {
+          console.warn('Speaker identification failed:', error);
+          speakerInfo = {
+            speakerId: 'unknown',
+            confidence: 0,
+            isNewSpeaker: false,
+            reason: 'identification_error'
+          };
+        }
+      }
+      
       // Determine which provider to use (check for fallback)
       const providerToUse = queueItem.fallbackProvider || this.currentProvider;
       
@@ -386,6 +441,11 @@ class TranscriptionEngine {
         result = await this.transcribeWithLocal(queueItem.audioData);
       } else {
         result = await this.transcribeWithCloud(queueItem.audioData, providerToUse);
+      }
+      
+      // Add speaker information to transcription result
+      if (speakerInfo) {
+        result.speaker = speakerInfo;
       }
       
       // Clear fallback provider after successful transcription
@@ -547,8 +607,17 @@ class TranscriptionEngine {
       timestamp: result.timestamp || Date.now(),
       segments: result.segments || [],
       processingTime: processingTime,
-      provider: result.provider || this.currentProvider
+      provider: result.provider || this.currentProvider,
+      speaker: result.speaker || null
     };
+    
+    // Add speaker label to text if speaker identification is available
+    if (transcriptionEntry.speaker && transcriptionEntry.speaker.speakerId !== 'unknown') {
+      const speakerLabel = this.formatSpeakerLabel(transcriptionEntry.speaker);
+      transcriptionEntry.labeledText = `${speakerLabel}: ${transcriptionEntry.text}`;
+    } else {
+      transcriptionEntry.labeledText = transcriptionEntry.text;
+    }
     
     // Handle real-time mode
     if (this.config.realTimeMode) {
@@ -1256,6 +1325,135 @@ class TranscriptionEngine {
   }
 
   /**
+   * Format speaker label for display
+   */
+  formatSpeakerLabel(speakerInfo) {
+    if (!speakerInfo || speakerInfo.speakerId === 'unknown') {
+      return 'Unknown Speaker';
+    }
+    
+    // Get speaker profile to check for custom name
+    const profile = this.speakerIdentificationService.getSpeakerProfile(speakerInfo.speakerId);
+    const displayName = profile && profile.name !== profile.id ? profile.name : speakerInfo.speakerId;
+    
+    // Add confidence indicator for low confidence identifications
+    if (speakerInfo.confidence < this.config.speakerIdentification.confidenceThreshold) {
+      return `${displayName}?`;
+    }
+    
+    return displayName;
+  }
+
+  /**
+   * Handle overlapping speech detection
+   */
+  handleOverlappingSpeech(audioData, currentSpeaker) {
+    // Simple implementation - could be enhanced with more sophisticated detection
+    if (!this.config.speakerIdentification.handleOverlappingSpeech) {
+      return currentSpeaker;
+    }
+    
+    // Check if audio energy suggests multiple speakers
+    const samples = audioData.data;
+    const windowSize = Math.floor(samples.length / 4);
+    const energyWindows = [];
+    
+    for (let i = 0; i < 4; i++) {
+      const start = i * windowSize;
+      const end = Math.min(start + windowSize, samples.length);
+      let energy = 0;
+      
+      for (let j = start; j < end; j++) {
+        energy += samples[j] * samples[j];
+      }
+      
+      energyWindows.push(Math.sqrt(energy / (end - start)));
+    }
+    
+    // Check for significant energy variations that might indicate overlapping speech
+    const maxEnergy = Math.max(...energyWindows);
+    const minEnergy = Math.min(...energyWindows);
+    const energyVariation = maxEnergy > 0 ? (maxEnergy - minEnergy) / maxEnergy : 0;
+    
+    if (energyVariation > 0.5) {
+      return {
+        ...currentSpeaker,
+        speakerId: 'Multiple Speakers',
+        confidence: Math.max(0.3, currentSpeaker.confidence * 0.7),
+        overlappingSpeech: true
+      };
+    }
+    
+    return currentSpeaker;
+  }
+
+  /**
+   * Enable/disable speaker identification
+   */
+  setSpeakerIdentificationEnabled(enabled) {
+    this.config.speakerIdentification.enabled = enabled;
+    
+    if (enabled && !this.speakerIdentificationService.isInitialized) {
+      this.speakerIdentificationService.initialize().then(() => {
+        this.setupSpeakerIdentificationListeners();
+        console.log('Speaker identification enabled and initialized');
+      }).catch(error => {
+        console.error('Failed to initialize speaker identification:', error);
+      });
+    }
+    
+    this.notifyListeners('speakerIdentificationToggled', { enabled });
+  }
+
+  /**
+   * Get speaker identification service
+   */
+  getSpeakerIdentificationService() {
+    return this.speakerIdentificationService;
+  }
+
+  /**
+   * Get speaker statistics
+   */
+  getSpeakerStatistics() {
+    if (!this.speakerIdentificationService.isInitialized) {
+      return null;
+    }
+    
+    const profiles = this.speakerIdentificationService.getAllSpeakerProfiles();
+    const status = this.speakerIdentificationService.getStatus();
+    
+    // Analyze transcription buffer for speaker distribution
+    const speakerCounts = new Map();
+    const speakerDurations = new Map();
+    
+    for (const entry of this.transcriptionBuffer) {
+      if (entry.speaker && entry.speaker.speakerId !== 'unknown') {
+        const speakerId = entry.speaker.speakerId;
+        speakerCounts.set(speakerId, (speakerCounts.get(speakerId) || 0) + 1);
+        
+        // Estimate duration based on text length (rough approximation)
+        const estimatedDuration = entry.text.length * 50; // ~50ms per character
+        speakerDurations.set(speakerId, (speakerDurations.get(speakerId) || 0) + estimatedDuration);
+      }
+    }
+    
+    return {
+      totalSpeakers: profiles.length,
+      unknownSpeakers: status.unknownSpeakerCount,
+      currentSpeaker: status.currentSpeaker,
+      speakerDistribution: Object.fromEntries(speakerCounts),
+      speakerDurations: Object.fromEntries(speakerDurations),
+      profiles: profiles.map(p => ({
+        id: p.id,
+        name: p.name,
+        sampleCount: p.sampleCount,
+        enrollmentDate: p.enrollmentDate
+      }))
+    };
+  }
+
+  /**
    * Get current status
    */
   getStatus() {
@@ -1277,7 +1475,13 @@ class TranscriptionEngine {
       metrics: this.getMetrics(),
       networkStatus: this.cloudSTTService.getNetworkStatus(),
       availableProviders: this.getAvailableProviders(),
-      localSTTStatus: this.localSTTService ? this.localSTTService.getStatus() : null
+      localSTTStatus: this.localSTTService ? this.localSTTService.getStatus() : null,
+      speakerIdentification: {
+        enabled: this.config.speakerIdentification.enabled,
+        initialized: this.speakerIdentificationService.isInitialized,
+        status: this.speakerIdentificationService.isInitialized ? this.speakerIdentificationService.getStatus() : null,
+        statistics: this.getSpeakerStatistics()
+      }
     };
   }
 

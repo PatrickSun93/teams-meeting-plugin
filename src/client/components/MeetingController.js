@@ -3,11 +3,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import TeamsAdapter from '../../teams/teamsAdapter.js';
 import AudioProcessor from './AudioProcessor.js';
 import TranscriptionEngine from '../services/TranscriptionEngine.js';
+import AgendaService from '../services/AgendaService.js';
 
-const MeetingController = ({ onMeetingStateChange, onError }) => {
+const MeetingController = ({ onMeetingStateChange, onError, onAgendaUpdate, onContentFilter }) => {
   const [teamsAdapter, setTeamsAdapter] = useState(null);
   const [audioProcessor, setAudioProcessor] = useState(null);
   const [transcriptionEngine, setTranscriptionEngine] = useState(null);
+  const [agendaService, setAgendaService] = useState(null);
   const [meetingInfo, setMeetingInfo] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isHost, setIsHost] = useState(false);
@@ -18,6 +20,9 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
   const [audioQuality, setAudioQuality] = useState(null);
   const [isAudioCapturing, setIsAudioCapturing] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [currentAgenda, setCurrentAgenda] = useState(null);
+  const [agendaProgress, setAgendaProgress] = useState(0);
+  const [currentAgendaItem, setCurrentAgendaItem] = useState(null);
 
   // Initialize Teams adapter and audio processor
   useEffect(() => {
@@ -42,6 +47,10 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
         });
         setTranscriptionEngine(engine);
         
+        // Initialize agenda service
+        const agenda = new AgendaService();
+        setAgendaService(agenda);
+        
         // Set up audio processor event listeners
         processor.addEventListener('qualityUpdate', handleAudioQualityUpdate);
         processor.addEventListener('audioReady', handleAudioReady);
@@ -59,6 +68,11 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
         
         // Set up meeting state change listener
         adapter.addEventListener('meetingStateChange', handleMeetingStateChange);
+        
+        // Load meeting agenda if available
+        if (info.id) {
+          loadMeetingAgenda(info.id, adapter, agenda);
+        }
         
         console.log('Meeting controller initialized successfully');
       } catch (error) {
@@ -137,6 +151,13 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     }
   }, [transcriptionEngine, isTranscribing]);
 
+  // Handle transcription results (for agenda tracking)
+  const handleTranscriptionResult = useCallback((transcriptionText) => {
+    if (transcriptionText && currentAgenda) {
+      trackAgendaProgress(transcriptionText);
+    }
+  }, [currentAgenda, trackAgendaProgress]);
+
   // Handle audio capture started
   const handleAudioCaptureStarted = useCallback((event) => {
     console.log('Audio capture started:', event);
@@ -148,6 +169,67 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     console.log('Audio capture stopped:', event);
     setIsAudioCapturing(false);
   }, []);
+
+  // Load meeting agenda
+  const loadMeetingAgenda = useCallback(async (meetingId, adapter, agenda) => {
+    try {
+      console.log('Loading meeting agenda for:', meetingId);
+      
+      // Try to get access token from Teams adapter
+      if (adapter && typeof adapter.getGraphAccessToken === 'function') {
+        const accessToken = await adapter.getGraphAccessToken();
+        if (accessToken) {
+          agenda.setAccessToken(accessToken);
+        }
+      }
+      
+      // Fetch the agenda
+      const meetingAgenda = await agenda.fetchMeetingAgenda(meetingId);
+      setCurrentAgenda(meetingAgenda);
+      
+      // Notify parent component
+      if (onAgendaUpdate) {
+        onAgendaUpdate(meetingAgenda);
+      }
+      
+      console.log('Meeting agenda loaded:', meetingAgenda);
+    } catch (error) {
+      console.error('Failed to load meeting agenda:', error);
+      // Create fallback agenda on error
+      if (agenda) {
+        const fallbackAgenda = agenda.createFallbackAgenda();
+        setCurrentAgenda(fallbackAgenda);
+        if (onAgendaUpdate) {
+          onAgendaUpdate(fallbackAgenda);
+        }
+      }
+    }
+  }, [onAgendaUpdate]);
+
+  // Track agenda progress based on transcription
+  const trackAgendaProgress = useCallback((transcriptionText) => {
+    if (!agendaService || !currentAgenda) return;
+
+    try {
+      const tracking = agendaService.trackAgendaProgress(transcriptionText);
+      setAgendaProgress(tracking.progress);
+      setCurrentAgendaItem(tracking.currentItem);
+
+      // Apply content filtering
+      const filterResult = agendaService.filterContentByAgenda(transcriptionText);
+      if (onContentFilter) {
+        onContentFilter(filterResult);
+      }
+
+      console.log('Agenda tracking updated:', {
+        progress: tracking.progress,
+        currentItem: tracking.currentItem?.title,
+        relevance: filterResult.relevanceScore
+      });
+    } catch (error) {
+      console.error('Error tracking agenda progress:', error);
+    }
+  }, [agendaService, currentAgenda, onContentFilter]);
 
   // Start audio capture
   const startAudioCapture = useCallback(async () => {
@@ -316,6 +398,46 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     return audioProcessor ? audioProcessor.getAudioSegment(duration) : null;
   }, [audioProcessor]);
 
+  // Get current agenda
+  const getCurrentAgenda = useCallback(() => {
+    return currentAgenda;
+  }, [currentAgenda]);
+
+  // Get agenda progress
+  const getAgendaProgress = useCallback(() => {
+    return {
+      progress: agendaProgress,
+      currentItem: currentAgendaItem,
+      totalItems: currentAgenda?.items?.length || 0
+    };
+  }, [agendaProgress, currentAgendaItem, currentAgenda]);
+
+  // Refresh meeting agenda
+  const refreshAgenda = useCallback(async () => {
+    if (meetingInfo?.id && teamsAdapter && agendaService) {
+      await loadMeetingAgenda(meetingInfo.id, teamsAdapter, agendaService);
+    }
+  }, [meetingInfo, teamsAdapter, agendaService, loadMeetingAgenda]);
+
+  // Reset agenda tracking
+  const resetAgendaTracking = useCallback(() => {
+    if (agendaService) {
+      agendaService.resetTracking();
+      setAgendaProgress(0);
+      setCurrentAgendaItem(null);
+    }
+  }, [agendaService]);
+
+  // Generate agenda-focused summary prompt
+  const getAgendaSummaryPrompt = useCallback(() => {
+    return agendaService ? agendaService.generateAgendaSummaryPrompt() : null;
+  }, [agendaService]);
+
+  // Filter content by agenda relevance
+  const filterContentByAgenda = useCallback((content) => {
+    return agendaService ? agendaService.filterContentByAgenda(content) : null;
+  }, [agendaService]);
+
   return {
     // State
     isInitialized,
@@ -327,6 +449,9 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     isAudioCapturing,
     isTranscribing,
     audioQuality,
+    currentAgenda,
+    agendaProgress,
+    currentAgendaItem,
     
     // Methods
     startTranscription,
@@ -338,11 +463,21 @@ const MeetingController = ({ onMeetingStateChange, onError }) => {
     getAudioStatus,
     getAudioQuality,
     getAudioSegment,
+    handleTranscriptionResult,
+    
+    // Agenda methods
+    getCurrentAgenda,
+    getAgendaProgress,
+    refreshAgenda,
+    resetAgendaTracking,
+    getAgendaSummaryPrompt,
+    filterContentByAgenda,
     
     // Component references (for advanced usage)
     teamsAdapter,
     audioProcessor,
-    transcriptionEngine
+    transcriptionEngine,
+    agendaService
   };
 };
 

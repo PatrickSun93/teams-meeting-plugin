@@ -272,16 +272,63 @@ class TeamsAdapter {
    */
   async getMeetingAgenda() {
     try {
-      // Note: Getting meeting agenda requires Microsoft Graph API integration
-      // This is a placeholder implementation
       console.log('Attempting to get meeting agenda');
       
-      return {
-        available: false,
-        message: 'Agenda access requires Graph API integration'
-      };
+      // Import AgendaService dynamically to avoid circular dependencies
+      const { default: AgendaService } = await import('../src/client/services/AgendaService.js');
+      const agendaService = new AgendaService();
+      
+      // Try to get access token from Teams context
+      const accessToken = await this.getGraphAccessToken();
+      if (accessToken) {
+        agendaService.setAccessToken(accessToken);
+      }
+      
+      // Fetch agenda using meeting ID
+      const meetingId = this.meetingInfo?.id;
+      if (meetingId) {
+        const agenda = await agendaService.fetchMeetingAgenda(meetingId);
+        console.log('Meeting agenda retrieved:', agenda);
+        return agenda;
+      }
+      
+      // Return fallback agenda if no meeting ID
+      return agendaService.createFallbackAgenda();
     } catch (error) {
       console.error('Error getting meeting agenda:', error);
+      
+      // Return fallback agenda on error
+      try {
+        const { default: AgendaService } = await import('../src/client/services/AgendaService.js');
+        const agendaService = new AgendaService();
+        return agendaService.createFallbackAgenda();
+      } catch (fallbackError) {
+        console.error('Error creating fallback agenda:', fallbackError);
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Get Microsoft Graph access token from Teams context
+   */
+  async getGraphAccessToken() {
+    try {
+      if (!this.isInitialized) {
+        return null;
+      }
+
+      // Try to get access token using Teams SDK
+      // Note: This requires proper app registration and permissions
+      const token = await microsoftTeams.authentication.getAuthToken({
+        resources: ['https://graph.microsoft.com'],
+        silent: true
+      });
+      
+      console.log('Graph access token obtained');
+      return token;
+    } catch (error) {
+      console.warn('Could not obtain Graph access token:', error.message);
       return null;
     }
   }
