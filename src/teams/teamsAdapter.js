@@ -243,27 +243,174 @@ class TeamsAdapter {
   }
 
   /**
-   * Send message to Teams chat (if permissions allow)
+   * Send message to Teams chat using Microsoft Graph API
    */
   async sendMessageToChat(message) {
     try {
-      // Note: Sending messages requires specific permissions and context
-      // This is a placeholder for the chat integration functionality
-      console.log('Attempting to send message to chat:', message);
+      console.log('Attempting to send message to chat:', message.substring(0, 100) + '...');
       
-      // For now, we'll use the Teams SDK's sharing capability
-      // In a full implementation, this would use Microsoft Graph API
+      // Check if we have the required context
+      if (!this.context || !this.context.meeting) {
+        return {
+          success: false,
+          error: 'Not in a meeting context'
+        };
+      }
+
+      // Get access token for Microsoft Graph
+      const accessToken = await this.getGraphAccessToken();
+      if (!accessToken) {
+        return {
+          success: false,
+          error: 'Unable to obtain Graph API access token'
+        };
+      }
+
+      // Try to send message using Graph API
+      const result = await this.sendMessageViaGraph(message, accessToken);
       
-      return {
-        success: false,
-        message: 'Chat integration not yet implemented - requires Graph API setup'
-      };
+      if (result.success) {
+        console.log('Message sent successfully to Teams chat');
+        return {
+          success: true,
+          messageId: result.messageId,
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        // Fallback: Try using Teams SDK sharing
+        console.log('Graph API failed, trying Teams SDK sharing...');
+        const fallbackResult = await this.sendMessageViaTeamsSDK(message);
+        return fallbackResult;
+      }
+      
     } catch (error) {
       console.error('Error sending message to chat:', error);
       return {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Send message using Microsoft Graph API
+   */
+  async sendMessageViaGraph(message, accessToken) {
+    try {
+      // Get the chat/channel ID from meeting context
+      const chatId = this.getChatIdFromContext();
+      if (!chatId) {
+        throw new Error('Unable to determine chat ID from meeting context');
+      }
+
+      // Prepare the message payload
+      const messagePayload = {
+        body: {
+          contentType: 'text',
+          content: message
+        }
+      };
+
+      // Send message via Graph API
+      const response = await fetch(`https://graph.microsoft.com/v1.0/chats/${chatId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(messagePayload)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        return {
+          success: true,
+          messageId: result.id,
+          chatId: chatId
+        };
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`Graph API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+      }
+
+    } catch (error) {
+      console.error('Graph API message send failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Fallback: Send message using Teams SDK sharing capability
+   */
+  async sendMessageViaTeamsSDK(message) {
+    try {
+      // Use Teams SDK sharing functionality as fallback
+      const shareContent = {
+        content: [
+          {
+            type: 'message',
+            preview: true,
+            message: {
+              text: message
+            }
+          }
+        ]
+      };
+
+      // Try to share content
+      await microsoftTeams.sharing.shareWebContent(shareContent);
+      
+      return {
+        success: true,
+        method: 'teams_sdk_sharing',
+        note: 'Message shared via Teams SDK - user needs to confirm sending'
+      };
+
+    } catch (error) {
+      console.error('Teams SDK sharing failed:', error);
+      return {
+        success: false,
+        error: `Teams SDK sharing failed: ${error.message}`,
+        suggestion: 'Please copy the transcript manually and paste it in the chat'
+      };
+    }
+  }
+
+  /**
+   * Get chat ID from meeting context
+   */
+  getChatIdFromContext() {
+    try {
+      // Try different ways to get chat ID from Teams context
+      if (this.context.meeting?.conversationId) {
+        return this.context.meeting.conversationId;
+      }
+      
+      if (this.context.chat?.id) {
+        return this.context.chat.id;
+      }
+      
+      if (this.context.channel?.id) {
+        return this.context.channel.id;
+      }
+
+      // Try to extract from meeting URL or other context properties
+      if (this.context.meeting?.joinUrl) {
+        const urlMatch = this.context.meeting.joinUrl.match(/conversations\/([^\/\?]+)/);
+        if (urlMatch) {
+          return urlMatch[1];
+        }
+      }
+
+      console.warn('Unable to determine chat ID from context:', this.context);
+      return null;
+
+    } catch (error) {
+      console.error('Error getting chat ID from context:', error);
+      return null;
     }
   }
 

@@ -5,6 +5,7 @@ import MeetingStatus from './components/MeetingStatus.js';
 import TranscriptionControls from './components/TranscriptionControls.js';
 import RealTimeTranscription from './components/RealTimeTranscription.js';
 import ConfigurationPanel from './components/ConfigurationPanel.js';
+import ChatIntegration from './components/ChatIntegration.js';
 import useConfiguration from './hooks/useConfiguration.js';
 import './App.css';
 
@@ -13,6 +14,8 @@ function App() {
   const [error, setError] = useState(null);
   const [meetingEvents, setMeetingEvents] = useState([]);
   const [showConfigPanel, setShowConfigPanel] = useState(false);
+  const [currentTranscript, setCurrentTranscript] = useState(null);
+  const [currentSummary, setCurrentSummary] = useState(null);
   
   // Transcription engine reference
   const transcriptionEngineRef = useRef(null);
@@ -51,7 +54,8 @@ function App() {
     stopTranscription,
     getPlatformCapabilities,
     getAudioStatus,
-    transcriptionEngine
+    transcriptionEngine,
+    teamsAdapter
   } = MeetingController({ 
     onMeetingStateChange: handleMeetingStateChange, 
     onError: handleError 
@@ -110,6 +114,22 @@ function App() {
   const handleConfigChange = useCallback((newConfig) => {
     console.log('Configuration updated:', newConfig);
     // Configuration is automatically updated through the hook
+  }, []);
+
+  // Handle chat sent successfully
+  const handleChatSent = useCallback((chatResult) => {
+    console.log('Content sent to chat:', chatResult);
+    // Could show a success notification or update UI state
+  }, []);
+
+  // Handle transcript updates (for chat integration)
+  const handleTranscriptUpdate = useCallback((transcript) => {
+    setCurrentTranscript(transcript);
+  }, []);
+
+  // Handle summary updates (for chat integration)
+  const handleSummaryUpdate = useCallback((summary) => {
+    setCurrentSummary(summary);
   }, []);
 
   // Check if configuration is needed before starting transcription
@@ -228,6 +248,16 @@ function App() {
           onPause={handlePauseTranscription}
           onResume={handleResumeTranscription}
           onClear={handleClearTranscription}
+          onTranscriptUpdate={handleTranscriptUpdate}
+          onSummaryUpdate={handleSummaryUpdate}
+        />
+
+        <ChatIntegration
+          teamsAdapter={teamsAdapter}
+          transcript={currentTranscript}
+          summary={currentSummary}
+          onChatSent={handleChatSent}
+          onError={handleError}
         />
 
         {getPlatformCapabilities && (

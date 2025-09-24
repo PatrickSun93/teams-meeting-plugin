@@ -100,7 +100,7 @@
   - Write tests for prompt management
   - _Requirements: 7.2, 7.3, 7.5_
 
-- [-] 12. Implement Teams chat integration
+- [x] 12. Implement Teams chat integration
   - Create Teams chat API integration for sending messages
   - Implement transcript formatting for chat messages
   - Add message splitting for long transcripts
@@ -110,7 +110,7 @@
   - Write integration tests for chat functionality
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.4_
 
-- [ ] 13. Create transcript storage and management
+- [x] 13. Create transcript storage and management
   - Implement local transcript storage using IndexedDB
   - Create transcript retrieval and search functionality
   - Add transcript export capabilities (PDF, Word, text)
@@ -120,7 +120,7 @@
   - Write tests for transcript management
   - _Requirements: 1.5, 5.3, 5.5_
 
-- [ ] 14. Implement error handling and recovery
+- [-] 14. Implement error handling and recovery
   - Create comprehensive error handling for all components
   - Implement graceful degradation when services fail
   - Add user notification system for errors and warnings

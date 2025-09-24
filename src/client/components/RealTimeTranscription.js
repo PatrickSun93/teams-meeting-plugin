@@ -7,7 +7,9 @@ const RealTimeTranscription = ({
   isActive = false,
   onPause,
   onResume,
-  onClear
+  onClear,
+  onTranscriptUpdate,
+  onSummaryUpdate
 }) => {
   const [transcriptionSegments, setTranscriptionSegments] = useState([]);
   const [currentText, setCurrentText] = useState('');
@@ -35,7 +37,25 @@ const RealTimeTranscription = ({
       isEdited: false
     };
 
-    setTranscriptionSegments(prev => [...prev, segment]);
+    setTranscriptionSegments(prev => {
+      const newSegments = [...prev, segment];
+      
+      // Update parent component with current transcript
+      if (onTranscriptUpdate) {
+        const transcript = {
+          meetingId: `meeting_${Date.now()}`,
+          startTime: newSegments[0]?.timestamp || Date.now(),
+          endTime: Date.now(),
+          segments: newSegments,
+          speakers: [...new Set(newSegments.map(s => s.speakerId || 'Unknown Speaker'))],
+          meetingTitle: 'Teams Meeting'
+        };
+        onTranscriptUpdate(transcript);
+      }
+      
+      return newSegments;
+    });
+    
     setCurrentText('');
     setConfidence(result.confidence);
     
@@ -45,7 +65,7 @@ const RealTimeTranscription = ({
         transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 100);
     }
-  }, [isPaused]);
+  }, [isPaused, onTranscriptUpdate]);
 
   // Handle partial transcription results (streaming)
   const handlePartialResult = useCallback((result) => {
