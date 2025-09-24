@@ -16,7 +16,7 @@
   - Test Teams app sideloading and basic functionality
   - _Requirements: 1.1, 6.1, 6.2, 6.3_
 
-- [-] 3. Implement audio capture from Teams meetings
+- [x] 3. Implement audio capture from Teams meetings
   - Set up Web Audio API integration with Teams SDK
   - Create audio stream capture functionality
   - Implement audio quality assessment and validation
@@ -25,7 +25,7 @@
   - Write unit tests for audio capture functionality
   - _Requirements: 1.1, 1.2, 1.4_
 
-- [ ] 4. Create configuration management system
+- [x] 4. Create configuration management system
   - Implement user configuration storage using IndexedDB
   - Create configuration UI for STT service selection (local/OpenAI/Claude/Azure)
   - Add API key management with secure storage
@@ -34,7 +34,7 @@
   - Write tests for configuration management
   - _Requirements: 5.1, 5.5, 7.1, 7.2_
 
-- [ ] 5. Implement local STT using Whisper.js
+- [x] 5. Implement local STT using Whisper.js
   - Integrate Whisper.js or similar local STT library
   - Create audio-to-text conversion pipeline
   - Implement confidence scoring for transcription quality
@@ -43,7 +43,7 @@
   - Write unit tests for local STT functionality
   - _Requirements: 1.2, 1.4, 5.1_
 
-- [ ] 6. Implement cloud STT service integrations
+- [-] 6. Implement cloud STT service integrations
   - Create OpenAI Whisper API integration
   - Implement Azure Speech Services integration
   - Add Claude speech processing (if available)

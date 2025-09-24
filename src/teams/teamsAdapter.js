@@ -287,24 +287,90 @@ class TeamsAdapter {
   }
 
   /**
-   * Request audio stream access
+   * Request audio stream access with optimal settings for transcription
    */
   async requestAudioAccess() {
     try {
-      // Request microphone permissions through Teams
+      // Request microphone permissions with optimal settings for speech recognition
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 16000, // Optimal for speech recognition
+          channelCount: 1,    // Mono audio
+          sampleSize: 16      // 16-bit samples
         }
       });
       
-      console.log('Audio access granted');
+      console.log('Audio access granted with stream:', stream);
+      
+      // Validate audio stream
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        throw new Error('No audio tracks available in stream');
+      }
+      
+      // Log audio track settings
+      const audioTrack = audioTracks[0];
+      const settings = audioTrack.getSettings();
+      console.log('Audio track settings:', settings);
+      
       return stream;
     } catch (error) {
       console.error('Error requesting audio access:', error);
-      throw new Error(`Audio access denied: ${error.message}`);
+      
+      // Provide more specific error messages
+      if (error.name === 'NotAllowedError') {
+        throw new Error('Microphone access denied. Please allow microphone permissions and try again.');
+      } else if (error.name === 'NotFoundError') {
+        throw new Error('No microphone found. Please connect a microphone and try again.');
+      } else if (error.name === 'NotReadableError') {
+        throw new Error('Microphone is already in use by another application.');
+      } else {
+        throw new Error(`Audio access failed: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Get available audio input devices
+   */
+  async getAudioInputDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(device => device.kind === 'audioinput');
+      
+      console.log('Available audio input devices:', audioInputs);
+      return audioInputs;
+    } catch (error) {
+      console.error('Error enumerating audio devices:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Request audio access with specific device
+   */
+  async requestAudioAccessWithDevice(deviceId) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000,
+          channelCount: 1,
+          sampleSize: 16
+        }
+      });
+      
+      console.log('Audio access granted for device:', deviceId);
+      return stream;
+    } catch (error) {
+      console.error('Error requesting audio access for device:', deviceId, error);
+      throw new Error(`Audio access failed for device: ${error.message}`);
     }
   }
 

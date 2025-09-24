@@ -44,8 +44,19 @@
   background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
   color: white;
   padding: 24px;
-  text-align: center;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.header-text {
+  text-align: left;
 }
 
 .App-header h1 {
@@ -58,6 +69,26 @@
   margin: 0;
   opacity: 0.9;
   font-size: 16px;
+}
+
+.config-button {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.config-button:hover {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
 }
 
 .App-main {
@@ -120,6 +151,70 @@
   color: #323130;
   font-size: 18px;
   font-weight: 600;
+}
+
+.audio-status {
+  background: #e8f5e8;
+  border: 1px solid #c3e6c3;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.audio-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: #155724;
+  margin-bottom: 10px;
+}
+
+.recording-dot {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.audio-quality h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: #155724;
+}
+
+.quality-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.metric span:first-child {
+  font-weight: 500;
+  color: #495057;
+}
+
+.metric span.good {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.metric span.poor {
+  color: #dc3545;
+  font-weight: 500;
 }
 
 .transcript-area {
@@ -251,8 +346,22 @@
     padding: 20px 16px;
   }
   
+  .header-content {
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
+  
+  .header-text {
+    text-align: center;
+  }
+  
   .App-header h1 {
     font-size: 24px;
+  }
+  
+  .config-button {
+    align-self: center;
   }
   
   .capabilities-grid {
