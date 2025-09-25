@@ -1,6 +1,7 @@
-// Configuration Manager - Handles user settings, API keys, and preferences
+// Configuration Manager - Handles user settings, API keys, and preferences with security integration
 class ConfigurationManager {
-  constructor() {
+  constructor(securityManager = null) {
+    this.securityManager = securityManager;
     this.dbName = 'TeamsTranscriptionConfig';
     this.dbVersion = 1;
     this.db = null;
@@ -77,13 +78,48 @@ class ConfigurationManager {
       throw new Error(`Invalid configuration: ${validationResult.errors.join(', ')}`);
     }
 
+    // Apply privacy mode compliance if SecurityManager is available
+    let finalConfig = config;
+    if (this.securityManager && this.securityManager.privacyModeService) {
+      finalConfig = this.securityManager.privacyModeService.getPrivacyCompliantConfig(config);
+    }
+
+    // Check for consent requirements for cloud services
+    if (this.securityManager && this.securityManager.consentService) {
+      const requiredConsents = [];
+      
+      if (this.requiresConsent(finalConfig.sttProvider)) {
+        requiredConsents.push('cloud_stt');
+      }
+      
+      if (this.requiresConsent(finalConfig.aiProvider)) {
+        requiredConsents.push('cloud_summary');
+      }
+
+      if (requiredConsents.length > 0) {
+        const validation = this.securityManager.consentService.validateRequiredConsents(requiredConsents);
+        if (!validation.valid) {
+          throw new Error(`Missing required consents: ${validation.missing.join(', ')}`);
+        }
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['userConfig'], 'readwrite');
       const store = transaction.objectStore('userConfig');
-      const request = store.put(config);
+      const request = store.put(finalConfig);
 
       request.onsuccess = () => {
-        resolve(config);
+        // Log configuration change if SecurityManager is available
+        if (this.securityManager && this.securityManager.auditLogService) {
+          this.securityManager.auditLogService.logConfigChange(
+            'user_config',
+            config,
+            finalConfig,
+            'User configuration updated'
+          );
+        }
+        resolve(finalConfig);
       };
 
       request.onerror = () => {
@@ -96,6 +132,19 @@ class ConfigurationManager {
   async getApiKey(service) {
     await this.initialize();
 
+    // Use SecurityManager for secure retrieval if available
+    if (this.securityManager && this.securityManager.isInitialized()) {
+      try {
+        const apiKey = await this.securityManager.secureStorageService.getApiKey(service);
+        if (apiKey) {
+          return apiKey;
+        }
+      } catch (error) {
+        console.warn('Failed to use secure storage, falling back to basic decryption:', error);
+      }
+    }
+
+    // Fallback to basic decryption
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['apiKeys'], 'readonly');
       const store = transaction.objectStore('apiKeys');
@@ -126,7 +175,19 @@ class ConfigurationManager {
       throw new Error('Invalid API key');
     }
 
-    // Encrypt the API key (simple base64 for now, should use proper encryption in production)
+    // Use SecurityManager for secure storage if available
+    if (this.securityManager && this.securityManager.isInitialized()) {
+      try {
+        const success = await this.securityManager.secureStorageService.storeApiKey(service, apiKey);
+        if (success) {
+          return true;
+        }
+      } catch (error) {
+        console.warn('Failed to use secure storage, falling back to basic encryption:', error);
+      }
+    }
+
+    // Fallback to basic encryption
     const encryptedKey = this.encryptApiKey(apiKey);
 
     return new Promise((resolve, reject) => {
@@ -422,7 +483,7 @@ class ConfigurationManager {
 
   // Get default configuration
   getDefaultConfig(userId = 'default') {
-    return {
+    const defaultConfig = {
       userId,
       sttProvider: 'local_whisper',
       aiProvider: 'openai_gpt',
@@ -434,9 +495,21 @@ class ConfigurationManager {
       privacyMode: false,
       dataRetentionDays: 30,
       consentGiven: false,
+      security: {
+        encryptStorage: true,
+        requireConsent: true,
+        securityLevel: 'standard'
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+
+    // Apply privacy mode compliance if SecurityManager is available
+    if (this.securityManager && this.securityManager.privacyModeService) {
+      return this.securityManager.privacyModeService.getPrivacyCompliantConfig(defaultConfig);
+    }
+
+    return defaultConfig;
   }
 
   // Get default summary prompt
@@ -533,9 +606,124 @@ Focus on the agenda items and important outcomes. Keep the summary professional 
     ];
   }
 
+  // Set security manager for secure operations
+  setSecurityManager(securityManager) {
+    this.securityManager = securityManager;
+  }
+
+  // Check if configuration requires consent
+  async checkConsentRequirements(config) {
+    if (!this.securityManager || !this.securityManager.consentService) {
+      return { valid: true, missing: [], expired: [] };
+    }
+
+    const requiredConsents = [];
+    
+    if (this.requiresConsent(config.sttProvider)) {
+      requiredConsents.push('cloud_stt');
+    }
+    
+    if (this.requiresConsent(config.aiProvider)) {
+      requiredConsents.push('cloud_summary');
+    }
+
+    if (config.autoSendToChat) {
+      requiredConsents.push('data_sharing');
+    }
+
+    if (config.dataRetentionDays > 0) {
+      requiredConsents.push('transcript_storage');
+    }
+
+    return this.securityManager.consentService.validateRequiredConsents(requiredConsents);
+  }
+
+  // Get security-aware configuration
+  async getSecureConfig(userId = 'default') {
+    const config = await this.getUserConfig(userId);
+    
+    // Apply privacy mode compliance if SecurityManager is available
+    if (this.securityManager && this.securityManager.privacyModeService) {
+      return this.securityManager.privacyModeService.getPrivacyCompliantConfig(config);
+    }
+
+    return config;
+  }
+
+  // Validate configuration with security checks
+  async validateConfigWithSecurity(config) {
+    // Basic validation
+    const basicValidation = this.validateConfig(config);
+    if (!basicValidation.isValid) {
+      return basicValidation;
+    }
+
+    // Security validation
+    if (this.securityManager) {
+      try {
+        // Check consent requirements
+        const consentValidation = await this.checkConsentRequirements(config);
+        if (!consentValidation.valid) {
+          return {
+            isValid: false,
+            errors: [
+              ...basicValidation.errors,
+              `Missing required consents: ${consentValidation.missing.join(', ')}`,
+              ...(consentValidation.expired.length > 0 ? [`Expired consents: ${consentValidation.expired.join(', ')}`] : [])
+            ]
+          };
+        }
+
+        // Check privacy mode compliance
+        if (this.securityManager.privacyModeService && this.securityManager.privacyModeService.isPrivacyModeEnabled()) {
+          const sttValidation = this.securityManager.privacyModeService.validateProcessingRequest({
+            serviceType: 'stt',
+            provider: config.sttProvider,
+            dataType: 'audio'
+          });
+
+          const summaryValidation = this.securityManager.privacyModeService.validateProcessingRequest({
+            serviceType: 'summary',
+            provider: config.aiProvider,
+            dataType: 'transcript'
+          });
+
+          if (!sttValidation.allowed || !summaryValidation.allowed) {
+            return {
+              isValid: false,
+              errors: [
+                ...basicValidation.errors,
+                ...(sttValidation.allowed ? [] : [sttValidation.reason]),
+                ...(summaryValidation.allowed ? [] : [summaryValidation.reason])
+              ]
+            };
+          }
+        }
+      } catch (error) {
+        console.warn('Security validation failed:', error);
+        return {
+          isValid: false,
+          errors: [...basicValidation.errors, 'Security validation failed']
+        };
+      }
+    }
+
+    return basicValidation;
+  }
+
   // Clear all configuration data
   async clearAllData() {
     await this.initialize();
+
+    // Log data deletion if SecurityManager is available
+    if (this.securityManager && this.securityManager.auditLogService) {
+      this.securityManager.auditLogService.logDataAccess(
+        'delete',
+        'configuration',
+        'all',
+        { reason: 'User requested data clearing' }
+      );
+    }
 
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['userConfig', 'apiKeys', 'userPrompts'], 'readwrite');
