@@ -16,6 +16,7 @@ import SpeakerIdentification from './SpeakerIdentification.js';
 import HelpPanel from './HelpPanel.js';
 import ProgressIndicator from './ProgressIndicator.js';
 import StatusDisplay from './StatusDisplay.js';
+import PerformanceOptimizationPanel from './PerformanceOptimizationPanel.js';
 import useConfiguration from '../hooks/useConfiguration.js';
 import { errorHandler } from '../services/ErrorHandler.js';
 import './PluginInterface.css';
@@ -26,6 +27,7 @@ const PluginInterface = () => {
   const [showConfigPanel, setShowConfigPanel] = useState(false);
   const [showDiagnosticPanel, setShowDiagnosticPanel] = useState(false);
   const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [showPerformancePanel, setShowPerformancePanel] = useState(false);
   
   // Meeting and transcription state
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -215,6 +217,14 @@ const PluginInterface = () => {
             >
               ❓
             </button>
+            
+            <button 
+              className="action-button"
+              onClick={() => setShowPerformancePanel(true)}
+              title="Performance Optimization"
+            >
+              ⚡
+            </button>
           </div>
         </div>
       </header>
@@ -358,6 +368,11 @@ const PluginInterface = () => {
       <HelpPanel
         isOpen={showHelpPanel}
         onClose={() => setShowHelpPanel(false)}
+      />
+      
+      <PerformanceOptimizationPanel
+        isVisible={showPerformancePanel}
+        onClose={() => setShowPerformancePanel(false)}
       />
 
       <NotificationSystem />

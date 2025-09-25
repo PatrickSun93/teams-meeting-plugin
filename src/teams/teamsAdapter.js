@@ -422,7 +422,7 @@ class TeamsAdapter {
       console.log('Attempting to get meeting agenda');
       
       // Import AgendaService dynamically to avoid circular dependencies
-      const { default: AgendaService } = await import('../src/client/services/AgendaService.js');
+      const { default: AgendaService } = await import('../client/services/AgendaService.js');
       const agendaService = new AgendaService();
       
       // Try to get access token from Teams context
@@ -446,7 +446,7 @@ class TeamsAdapter {
       
       // Return fallback agenda on error
       try {
-        const { default: AgendaService } = await import('../src/client/services/AgendaService.js');
+        const { default: AgendaService } = await import('../client/services/AgendaService.js');
         const agendaService = new AgendaService();
         return agendaService.createFallbackAgenda();
       } catch (fallbackError) {
