@@ -25,7 +25,7 @@
   "accentColor": "#0078d4",
   "configurableTabs": [
     {
-      "configurationUrl": "https://localhost:3000/config",
+      "configurationUrl": "https://localhost:3001/config",
       "canUpdateConfiguration": true,
       "scopes": [
         "team",
@@ -37,8 +37,8 @@
     {
       "entityId": "transcription-tab",
       "name": "Transcription",
-      "contentUrl": "https://localhost:3000/tab",
-      "websiteUrl": "https://localhost:3000/tab",
+      "contentUrl": "https://localhost:3001/tab",
+      "websiteUrl": "https://localhost:3001/tab",
       "scopes": [
         "personal"
       ]
@@ -67,6 +67,7 @@
   ],
   "validDomains": [
     "localhost:3000",
+    "localhost:3001",
     "*.openai.com",
     "*.anthropic.com",
     "*.azure.com",

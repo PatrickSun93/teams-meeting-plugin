@@ -46,14 +46,23 @@ function App() {
     const checkTeamsContext = () => {
       try {
         // Check for Teams SDK or Teams-specific indicators
-        const isInTeams = window.location.href.includes('teams.microsoft.com') ||
-                         window.parent !== window ||
-                         document.referrer.includes('teams.microsoft.com');
+        const urlParams = new URLSearchParams(window.location.search);
+        const forceStandalone = urlParams.get('standalone') === 'true';
+        
+        const isInTeams = !forceStandalone && (
+          window.location.href.includes('teams.microsoft.com') ||
+          window.parent !== window ||
+          document.referrer.includes('teams.microsoft.com')
+        );
         
         setIsTeamsContext(isInTeams);
+        
+        // Log the mode for debugging
+        console.log('App mode:', isInTeams ? 'Teams' : 'Standalone');
       } catch (err) {
         console.warn('Could not determine Teams context:', err);
-        setError('Unable to determine Teams context');
+        // Default to standalone mode on error
+        setIsTeamsContext(false);
       }
     };
 

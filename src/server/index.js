@@ -21,6 +21,10 @@ app.get('/tab', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/build/index.html'));
 });
 
+app.get('/demo', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/demo.html'));
+});
+
 // API routes for transcription
 app.post('/api/transcription/start', (req, res) => {
   // TODO: Implement transcription start logic
