@@ -1,11 +1,29 @@
 // Help Panel Component - User guides and documentation
 import React, { useState } from 'react';
+import PlatformHelp from './PlatformHelp.js';
+import { MeetingPlatform } from '../services/PlatformAdapter.js';
 import './HelpPanel.css';
 
-const HelpPanel = ({ isOpen, onClose }) => {
-  const [activeSection, setActiveSection] = useState('getting-started');
+const HelpPanel = ({ 
+  isOpen, 
+  onClose, 
+  platform = MeetingPlatform.UNKNOWN, 
+  platformCapabilities = null 
+}) => {
+  const [activeSection, setActiveSection] = useState('platform-guide');
 
   const helpSections = [
+    {
+      id: 'platform-guide',
+      title: 'Platform Guide',
+      icon: '🎯',
+      content: (
+        <PlatformHelp 
+          platform={platform} 
+          capabilities={platformCapabilities} 
+        />
+      )
+    },
     {
       id: 'getting-started',
       title: 'Getting Started',
@@ -13,18 +31,18 @@ const HelpPanel = ({ isOpen, onClose }) => {
       content: (
         <div className="help-content">
           <h3>Welcome to Meeting Transcription</h3>
-          <p>This plugin provides real-time transcription and AI-powered summaries for your Teams meetings.</p>
+          <p>This plugin provides real-time transcription and AI-powered summaries for your meetings across multiple platforms.</p>
           
           <h4>Quick Start Guide</h4>
           <ol>
-            <li><strong>Join a Teams meeting</strong> - The plugin will automatically detect when you're in a meeting</li>
+            <li><strong>Join a meeting</strong> - The plugin will automatically detect your meeting platform</li>
             <li><strong>Configure settings</strong> - Click the ⚙️ button to set up your preferred transcription service</li>
-            <li><strong>Start transcription</strong> - If you're the meeting host, click "Start Transcription"</li>
+            <li><strong>Start transcription</strong> - Use the platform-appropriate controls to begin</li>
             <li><strong>View results</strong> - Watch real-time transcription and get AI summaries</li>
           </ol>
           
           <div className="help-note">
-            <strong>Note:</strong> Only meeting hosts can start and stop transcription to ensure privacy and control.
+            <strong>Note:</strong> Available features depend on your meeting platform. Check the Platform Guide for specific capabilities.
           </div>
         </div>
       )

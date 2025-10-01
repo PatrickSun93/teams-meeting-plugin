@@ -1,0 +1,1 @@
+console.log("Mock content-scripts");

@@ -5,8 +5,8 @@
 
 class TranscriptStorageService {
   constructor() {
-    this.dbName = 'TeamsTranscriptionDB';
-    this.dbVersion = 1;
+    this.dbName = 'UniversalTranscriptionDB'; // Updated for cross-platform
+    this.dbVersion = 2; // Increased for platform metadata
     this.db = null;
     this.encryptionKey = null;
   }
@@ -26,6 +26,7 @@ class TranscriptStorageService {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const oldVersion = event.oldVersion;
 
         // Transcripts store
         if (!db.objectStoreNames.contains('transcripts')) {
@@ -34,6 +35,21 @@ class TranscriptStorageService {
           transcriptStore.createIndex('date', 'createdAt', { unique: false });
           transcriptStore.createIndex('title', 'title', { unique: false });
           transcriptStore.createIndex('platform', 'platform', { unique: false });
+          transcriptStore.createIndex('platformVersion', 'platformMetadata.version', { unique: false });
+          transcriptStore.createIndex('meetingType', 'platformMetadata.meetingType', { unique: false });
+          transcriptStore.createIndex('organizationId', 'platformMetadata.organizationId', { unique: false });
+        } else if (oldVersion < 2) {
+          // Upgrade existing store for platform metadata
+          const transcriptStore = event.target.transaction.objectStore('transcripts');
+          if (!transcriptStore.indexNames.contains('platformVersion')) {
+            transcriptStore.createIndex('platformVersion', 'platformMetadata.version', { unique: false });
+          }
+          if (!transcriptStore.indexNames.contains('meetingType')) {
+            transcriptStore.createIndex('meetingType', 'platformMetadata.meetingType', { unique: false });
+          }
+          if (!transcriptStore.indexNames.contains('organizationId')) {
+            transcriptStore.createIndex('organizationId', 'platformMetadata.organizationId', { unique: false });
+          }
         }
 
         // Encryption keys store
@@ -45,6 +61,28 @@ class TranscriptStorageService {
         if (!db.objectStoreNames.contains('searchIndex')) {
           const searchStore = db.createObjectStore('searchIndex', { keyPath: 'transcriptId' });
           searchStore.createIndex('keywords', 'keywords', { unique: false, multiEntry: true });
+          searchStore.createIndex('platform', 'platform', { unique: false });
+        } else if (oldVersion < 2) {
+          // Add platform index to search store
+          const searchStore = event.target.transaction.objectStore('searchIndex');
+          if (!searchStore.indexNames.contains('platform')) {
+            searchStore.createIndex('platform', 'platform', { unique: false });
+          }
+        }
+
+        // Platform-specific metadata store
+        if (!db.objectStoreNames.contains('platformMetadata')) {
+          const metadataStore = db.createObjectStore('platformMetadata', { keyPath: 'transcriptId' });
+          metadataStore.createIndex('platform', 'platform', { unique: false });
+          metadataStore.createIndex('exportFormat', 'supportedExports', { unique: false, multiEntry: true });
+        }
+
+        // Cross-platform sharing store
+        if (!db.objectStoreNames.contains('sharingLinks')) {
+          const sharingStore = db.createObjectStore('sharingLinks', { keyPath: 'id' });
+          sharingStore.createIndex('transcriptId', 'transcriptId', { unique: false });
+          sharingStore.createIndex('platform', 'targetPlatform', { unique: false });
+          sharingStore.createIndex('expiresAt', 'expiresAt', { unique: false });
         }
       };
     });
@@ -132,11 +170,13 @@ class TranscriptStorageService {
   }
 
   /**
-   * Store a transcript with optional encryption
+   * Store a transcript with optional encryption and platform metadata
    */
   async storeTranscript(transcript, encrypt = false) {
     if (!this.db) await this.initialize();
 
+    const platformMetadata = this._buildPlatformMetadata(transcript);
+    
     const transcriptData = {
       id: transcript.id || this._generateId(),
       meetingId: transcript.meetingId,
@@ -147,24 +187,40 @@ class TranscriptStorageService {
       encrypted: encrypt,
       content: encrypt ? await this.encryptContent(transcript.content) : transcript.content,
       metadata: transcript.metadata || {},
+      platformMetadata: platformMetadata,
       tags: transcript.tags || [],
-      size: this._calculateSize(transcript.content)
+      size: this._calculateSize(transcript.content),
+      exportFormats: this._getSupportedExportFormats(transcript.platform),
+      sharingCapabilities: this._getPlatformSharingCapabilities(transcript.platform)
     };
 
-    const transaction = this.db.transaction(['transcripts', 'searchIndex'], 'readwrite');
+    const transaction = this.db.transaction(['transcripts', 'searchIndex', 'platformMetadata'], 'readwrite');
     const transcriptStore = transaction.objectStore('transcripts');
     const searchStore = transaction.objectStore('searchIndex');
+    const metadataStore = transaction.objectStore('platformMetadata');
 
     try {
       await this._promisifyRequest(transcriptStore.put(transcriptData));
       
-      // Build search index
+      // Store platform-specific metadata
+      await this._promisifyRequest(metadataStore.put({
+        transcriptId: transcriptData.id,
+        platform: transcriptData.platform,
+        supportedExports: transcriptData.exportFormats,
+        sharingMethods: transcriptData.sharingCapabilities,
+        platformSpecificData: platformMetadata,
+        createdAt: new Date()
+      }));
+      
+      // Build enhanced search index
       const keywords = this._extractKeywords(transcript.content);
       await this._promisifyRequest(searchStore.put({
         transcriptId: transcriptData.id,
+        platform: transcriptData.platform,
         keywords: keywords,
         title: transcriptData.title.toLowerCase(),
-        content: encrypt ? [] : this._extractSearchableText(transcript.content)
+        content: encrypt ? [] : this._extractSearchableText(transcript.content),
+        platformKeywords: this._extractPlatformKeywords(platformMetadata)
       }));
 
       return transcriptData.id;
@@ -425,6 +481,472 @@ class TranscriptStorageService {
       groups[group] = (groups[group] || 0) + 1;
       return groups;
     }, {});
+  }
+
+  /**
+   * Build platform-specific metadata
+   */
+  _buildPlatformMetadata(transcript) {
+    const baseMetadata = {
+      version: '1.0',
+      captureMethod: 'real-time',
+      audioQuality: transcript.audioQuality || 'medium',
+      participantCount: transcript.participants?.length || 0,
+      duration: transcript.duration || 0,
+      language: transcript.language || 'en-US'
+    };
+
+    switch (transcript.platform) {
+      case 'teams':
+        return {
+          ...baseMetadata,
+          meetingType: transcript.metadata?.meetingType || 'scheduled',
+          organizationId: transcript.metadata?.organizationId,
+          tenantId: transcript.metadata?.tenantId,
+          chatThreadId: transcript.metadata?.chatThreadId,
+          recordingId: transcript.metadata?.recordingId,
+          hasAgenda: !!transcript.agenda,
+          participantRoles: transcript.participants?.map(p => ({ id: p.id, role: p.role })) || []
+        };
+      
+      case 'zoom':
+        return {
+          ...baseMetadata,
+          meetingType: transcript.metadata?.meetingType || 'instant',
+          zoomMeetingId: transcript.metadata?.zoomMeetingId,
+          accountId: transcript.metadata?.accountId,
+          recordingId: transcript.metadata?.recordingId,
+          hasWaitingRoom: transcript.metadata?.hasWaitingRoom || false,
+          isBreakoutRoom: transcript.metadata?.isBreakoutRoom || false
+        };
+      
+      case 'meet':
+        return {
+          ...baseMetadata,
+          meetingType: 'google-meet',
+          meetCode: transcript.metadata?.meetCode,
+          calendarEventId: transcript.metadata?.calendarEventId,
+          organizerEmail: transcript.metadata?.organizerEmail,
+          hasCalendarIntegration: !!transcript.metadata?.calendarEventId
+        };
+      
+      default:
+        return {
+          ...baseMetadata,
+          meetingType: 'generic',
+          captureMethod: 'system-audio'
+        };
+    }
+  }
+
+  /**
+   * Get supported export formats for platform
+   */
+  _getSupportedExportFormats(platform) {
+    const baseFormats = ['json', 'txt', 'pdf'];
+    
+    switch (platform) {
+      case 'teams':
+        return [...baseFormats, 'docx', 'teams-chat', 'onenote'];
+      case 'zoom':
+        return [...baseFormats, 'docx', 'zoom-chat', 'vtt'];
+      case 'meet':
+        return [...baseFormats, 'docx', 'google-docs', 'drive-upload'];
+      default:
+        return baseFormats;
+    }
+  }
+
+  /**
+   * Get platform sharing capabilities
+   */
+  _getPlatformSharingCapabilities(platform) {
+    switch (platform) {
+      case 'teams':
+        return {
+          chatIntegration: true,
+          emailShare: true,
+          linkShare: true,
+          oneNoteIntegration: true,
+          sharepointIntegration: true
+        };
+      case 'zoom':
+        return {
+          chatIntegration: true,
+          emailShare: true,
+          linkShare: true,
+          cloudRecordingIntegration: true
+        };
+      case 'meet':
+        return {
+          chatIntegration: false,
+          emailShare: true,
+          linkShare: true,
+          driveIntegration: true,
+          calendarIntegration: true
+        };
+      default:
+        return {
+          chatIntegration: false,
+          emailShare: true,
+          linkShare: false,
+          fileExport: true
+        };
+    }
+  }
+
+  /**
+   * Extract platform-specific keywords for enhanced search
+   */
+  _extractPlatformKeywords(platformMetadata) {
+    const keywords = [];
+    
+    if (platformMetadata.meetingType) keywords.push(platformMetadata.meetingType);
+    if (platformMetadata.organizationId) keywords.push(`org:${platformMetadata.organizationId}`);
+    if (platformMetadata.hasAgenda) keywords.push('agenda');
+    if (platformMetadata.recordingId) keywords.push('recorded');
+    if (platformMetadata.isBreakoutRoom) keywords.push('breakout');
+    if (platformMetadata.hasWaitingRoom) keywords.push('waiting-room');
+    
+    return keywords;
+  }
+
+  /**
+   * Search transcripts across all platforms with enhanced filtering
+   */
+  async searchTranscriptsAcrossPlatforms(query, options = {}) {
+    if (!this.db) await this.initialize();
+
+    const transaction = this.db.transaction(['transcripts', 'searchIndex'], 'readonly');
+    const searchStore = transaction.objectStore('searchIndex');
+    const transcriptStore = transaction.objectStore('transcripts');
+    
+    try {
+      const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 2);
+      const matchingIds = new Set();
+
+      // Search across all platforms or specific platforms
+      const platforms = options.platforms || ['teams', 'zoom', 'meet', 'generic'];
+      
+      for (const platform of platforms) {
+        // Search in platform-specific index
+        const platformIndex = searchStore.index('platform');
+        const platformMatches = await this._promisifyRequest(platformIndex.getAll(platform));
+        
+        platformMatches.forEach(match => {
+          const hasKeywordMatch = keywords.some(keyword => 
+            match.keywords.includes(keyword) || 
+            match.title.includes(keyword) ||
+            match.platformKeywords?.includes(keyword)
+          );
+          
+          if (hasKeywordMatch) {
+            matchingIds.add(match.transcriptId);
+          }
+        });
+      }
+
+      // Get matching transcripts with platform metadata
+      const results = [];
+      for (const id of matchingIds) {
+        const transcript = await this._promisifyRequest(transcriptStore.get(id));
+        if (transcript) {
+          const score = this._calculateCrossPlatformRelevanceScore(transcript, keywords, options);
+          results.push({ ...transcript, relevanceScore: score });
+        }
+      }
+
+      // Sort by relevance and apply filters
+      results.sort((a, b) => b.relevanceScore - a.relevanceScore);
+      
+      let filtered = results;
+      
+      // Apply platform-specific filters
+      if (options.meetingType) {
+        filtered = filtered.filter(t => 
+          t.platformMetadata?.meetingType === options.meetingType
+        );
+      }
+      
+      if (options.hasRecording !== undefined) {
+        filtered = filtered.filter(t => 
+          !!t.platformMetadata?.recordingId === options.hasRecording
+        );
+      }
+      
+      if (options.organizationId) {
+        filtered = filtered.filter(t => 
+          t.platformMetadata?.organizationId === options.organizationId
+        );
+      }
+
+      return options.limit ? filtered.slice(0, options.limit) : filtered;
+    } catch (error) {
+      throw new Error(`Cross-platform search failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Calculate relevance score for cross-platform search
+   */
+  _calculateCrossPlatformRelevanceScore(transcript, keywords, options) {
+    let score = 0;
+    const title = transcript.title.toLowerCase();
+    const platform = transcript.platform;
+    
+    // Base keyword matching
+    keywords.forEach(keyword => {
+      if (title.includes(keyword)) score += 10;
+      if (transcript.platformMetadata?.meetingType?.includes(keyword)) score += 8;
+    });
+
+    // Platform preference boost
+    if (options.preferredPlatforms?.includes(platform)) {
+      score += 5;
+    }
+
+    // Recency boost
+    const daysSinceCreation = (Date.now() - new Date(transcript.createdAt)) / (1000 * 60 * 60 * 24);
+    if (daysSinceCreation < 7) score += 3;
+    else if (daysSinceCreation < 30) score += 1;
+
+    // Quality indicators
+    if (transcript.platformMetadata?.hasAgenda) score += 2;
+    if (transcript.platformMetadata?.recordingId) score += 2;
+    if (transcript.size > 10000) score += 1; // Longer meetings might be more important
+
+    return score;
+  }
+
+  /**
+   * Create cross-platform sharing link
+   */
+  async createSharingLink(transcriptId, targetPlatform, options = {}) {
+    if (!this.db) await this.initialize();
+
+    const transcript = await this.getTranscript(transcriptId);
+    if (!transcript) {
+      throw new Error('Transcript not found');
+    }
+
+    const sharingId = this._generateId();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + (options.expirationDays || 7));
+
+    const sharingLink = {
+      id: sharingId,
+      transcriptId: transcriptId,
+      sourcePlatform: transcript.platform,
+      targetPlatform: targetPlatform,
+      createdAt: new Date(),
+      expiresAt: expiresAt,
+      accessCount: 0,
+      maxAccess: options.maxAccess || 10,
+      requiresAuth: options.requiresAuth || false,
+      allowedUsers: options.allowedUsers || [],
+      metadata: {
+        title: transcript.title,
+        createdBy: options.createdBy,
+        permissions: options.permissions || ['read']
+      }
+    };
+
+    const transaction = this.db.transaction(['sharingLinks'], 'readwrite');
+    const sharingStore = transaction.objectStore('sharingLinks');
+
+    try {
+      await this._promisifyRequest(sharingStore.put(sharingLink));
+      return {
+        linkId: sharingId,
+        url: this._generateSharingUrl(sharingId, targetPlatform),
+        expiresAt: expiresAt
+      };
+    } catch (error) {
+      throw new Error(`Failed to create sharing link: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get transcript by sharing link
+   */
+  async getTranscriptByShareLink(linkId) {
+    if (!this.db) await this.initialize();
+
+    const transaction = this.db.transaction(['sharingLinks', 'transcripts'], 'readwrite');
+    const sharingStore = transaction.objectStore('sharingLinks');
+    const transcriptStore = transaction.objectStore('transcripts');
+
+    try {
+      const sharingLink = await this._promisifyRequest(sharingStore.get(linkId));
+      
+      if (!sharingLink) {
+        throw new Error('Sharing link not found');
+      }
+
+      if (new Date() > new Date(sharingLink.expiresAt)) {
+        throw new Error('Sharing link has expired');
+      }
+
+      if (sharingLink.accessCount >= sharingLink.maxAccess) {
+        throw new Error('Sharing link access limit exceeded');
+      }
+
+      // Update access count
+      sharingLink.accessCount++;
+      await this._promisifyRequest(sharingStore.put(sharingLink));
+
+      // Get the transcript
+      const transcript = await this._promisifyRequest(transcriptStore.get(sharingLink.transcriptId));
+      
+      if (!transcript) {
+        throw new Error('Associated transcript not found');
+      }
+
+      if (transcript.encrypted) {
+        transcript.content = await this.decryptContent(transcript.content);
+      }
+
+      return {
+        transcript: transcript,
+        sharingInfo: {
+          sourcePlatform: sharingLink.sourcePlatform,
+          targetPlatform: sharingLink.targetPlatform,
+          accessCount: sharingLink.accessCount,
+          maxAccess: sharingLink.maxAccess,
+          expiresAt: sharingLink.expiresAt
+        }
+      };
+    } catch (error) {
+      throw new Error(`Failed to access shared transcript: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get platform-specific export data
+   */
+  async getPlatformExportData(transcriptId, exportFormat) {
+    const transcript = await this.getTranscript(transcriptId);
+    if (!transcript) {
+      throw new Error('Transcript not found');
+    }
+
+    const platformMetadata = transcript.platformMetadata;
+    const exportData = {
+      transcript: transcript,
+      format: exportFormat,
+      platformSpecific: {}
+    };
+
+    switch (transcript.platform) {
+      case 'teams':
+        exportData.platformSpecific = {
+          chatThreadId: platformMetadata?.chatThreadId,
+          organizationId: platformMetadata?.organizationId,
+          tenantId: platformMetadata?.tenantId,
+          participantRoles: platformMetadata?.participantRoles,
+          canPostToChat: transcript.sharingCapabilities?.chatIntegration
+        };
+        break;
+
+      case 'zoom':
+        exportData.platformSpecific = {
+          zoomMeetingId: platformMetadata?.zoomMeetingId,
+          accountId: platformMetadata?.accountId,
+          recordingId: platformMetadata?.recordingId,
+          canPostToChat: transcript.sharingCapabilities?.chatIntegration
+        };
+        break;
+
+      case 'meet':
+        exportData.platformSpecific = {
+          meetCode: platformMetadata?.meetCode,
+          calendarEventId: platformMetadata?.calendarEventId,
+          organizerEmail: platformMetadata?.organizerEmail,
+          driveIntegration: transcript.sharingCapabilities?.driveIntegration
+        };
+        break;
+    }
+
+    return exportData;
+  }
+
+  /**
+   * Generate sharing URL for platform
+   */
+  _generateSharingUrl(linkId, targetPlatform) {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/share/${targetPlatform}/${linkId}`;
+  }
+
+  /**
+   * Get enhanced storage statistics with platform breakdown
+   */
+  async getEnhancedStorageStats() {
+    if (!this.db) await this.initialize();
+
+    const transcripts = await this.getAllTranscripts();
+    const sharingTransaction = this.db.transaction(['sharingLinks'], 'readonly');
+    const sharingStore = sharingTransaction.objectStore('sharingLinks');
+    const sharingLinks = await this._promisifyRequest(sharingStore.getAll());
+    
+    const stats = {
+      totalTranscripts: transcripts.length,
+      totalSize: transcripts.reduce((sum, t) => sum + (t.size || 0), 0),
+      encryptedCount: transcripts.filter(t => t.encrypted).length,
+      platformBreakdown: this._groupBy(transcripts, 'platform'),
+      meetingTypeBreakdown: this._groupBy(transcripts, t => t.platformMetadata?.meetingType || 'unknown'),
+      sharingStats: {
+        totalLinks: sharingLinks.length,
+        activeLinks: sharingLinks.filter(l => new Date(l.expiresAt) > new Date()).length,
+        totalAccesses: sharingLinks.reduce((sum, l) => sum + l.accessCount, 0)
+      },
+      crossPlatformUsage: this._analyzeCrossPlatformUsage(transcripts, sharingLinks),
+      oldestTranscript: transcripts.length > 0 ? 
+        new Date(Math.min(...transcripts.map(t => new Date(t.createdAt)))) : null,
+      newestTranscript: transcripts.length > 0 ? 
+        new Date(Math.max(...transcripts.map(t => new Date(t.createdAt)))) : null
+    };
+
+    return stats;
+  }
+
+  /**
+   * Analyze cross-platform usage patterns
+   */
+  _analyzeCrossPlatformUsage(transcripts, sharingLinks) {
+    const platformPairs = {};
+    
+    sharingLinks.forEach(link => {
+      const pair = `${link.sourcePlatform}->${link.targetPlatform}`;
+      platformPairs[pair] = (platformPairs[pair] || 0) + 1;
+    });
+
+    return {
+      mostSharedPlatform: this._getMostFrequent(transcripts.map(t => t.platform)),
+      popularSharingPairs: Object.entries(platformPairs)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 5),
+      averageTranscriptSize: transcripts.reduce((sum, t) => sum + (t.size || 0), 0) / transcripts.length || 0
+    };
+  }
+
+  /**
+   * Get most frequent item in array
+   */
+  _getMostFrequent(arr) {
+    const frequency = {};
+    let maxCount = 0;
+    let mostFrequent = null;
+
+    arr.forEach(item => {
+      frequency[item] = (frequency[item] || 0) + 1;
+      if (frequency[item] > maxCount) {
+        maxCount = frequency[item];
+        mostFrequent = item;
+      }
+    });
+
+    return mostFrequent;
   }
 }
 

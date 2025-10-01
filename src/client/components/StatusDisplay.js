@@ -1,5 +1,7 @@
 // Status Display Component - Shows overall plugin status
 import React from 'react';
+import PlatformIndicator from './PlatformIndicator.js';
+import { MeetingPlatform } from '../services/PlatformAdapter.js';
 import './StatusDisplay.css';
 
 const StatusDisplay = ({ 
@@ -8,7 +10,9 @@ const StatusDisplay = ({
   isHost, 
   audioQuality, 
   error, 
-  onClearError 
+  onClearError,
+  platform = MeetingPlatform.UNKNOWN,
+  platformCapabilities = null
 }) => {
   const getOverallStatus = () => {
     if (error) {
@@ -64,21 +68,32 @@ const StatusDisplay = ({
   const audioStatus = getAudioQualityStatus();
 
   return (
-    <div className={`status-display ${status.type}`}>
+    <div className={`status-display platform-surface ${status.type}`}>
       <div className="status-main">
         <div className="status-indicator">
-          <span className="status-icon">{status.icon}</span>
+          <span className="status-icon platform-icon">{status.icon}</span>
           <div className="status-text">
             <span className="status-message">{status.message}</span>
             {status.type === 'active' && (
-              <span className="status-detail">Recording and processing audio</span>
+              <span className="status-detail platform-text-secondary">
+                Recording and processing audio
+              </span>
             )}
           </div>
         </div>
         
+        <div className="status-platform-info">
+          <PlatformIndicator 
+            platform={platform}
+            capabilities={platformCapabilities}
+            isActive={meetingState === 'active'}
+            compact={true}
+          />
+        </div>
+        
         {error && (
           <button 
-            className="error-dismiss"
+            className="error-dismiss platform-button"
             onClick={onClearError}
             title="Dismiss error"
           >
@@ -92,19 +107,19 @@ const StatusDisplay = ({
           <div className="audio-metrics">
             <div className="metric">
               <span className="metric-label">Volume:</span>
-              <span className={`metric-value ${audioStatus.volume > 1 ? 'good' : 'poor'}`}>
+              <span className={`metric-value ${audioStatus.volume > 1 ? 'platform-success' : 'platform-warning'}`}>
                 {audioStatus.volume}%
               </span>
             </div>
             <div className="metric">
               <span className="metric-label">S/N Ratio:</span>
-              <span className={`metric-value ${audioStatus.snr !== 'N/A' && parseFloat(audioStatus.snr) > 2 ? 'good' : 'poor'}`}>
+              <span className={`metric-value ${audioStatus.snr !== 'N/A' && parseFloat(audioStatus.snr) > 2 ? 'platform-success' : 'platform-warning'}`}>
                 {audioStatus.snr}
               </span>
             </div>
             <div className="metric">
               <span className="metric-label">Quality:</span>
-              <span className={`metric-value ${audioStatus.isGood ? 'good' : 'poor'}`}>
+              <span className={`metric-value ${audioStatus.isGood ? 'platform-success' : 'platform-warning'}`}>
                 {audioStatus.isGood ? 'Good' : 'Poor'}
               </span>
             </div>

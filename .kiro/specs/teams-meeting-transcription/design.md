@@ -703,17 +703,283 @@ teams-transcription-app/
 **Chat Integration**: Native Teams chat API for sending transcripts
 **Host Detection**: Teams SDK provides meeting role information
 
-### Zoom
-- **Integration**: Zoom Web SDK or Zoom App Marketplace
-- **Audio Access**: Web SDK audio streams or system audio capture
-- **Chat Integration**: Zoom chat API (where available)
-- **Deployment**: Zoom App Marketplace or browser extension
+### Zoom Platform Integration
 
-### Google Meet
-- **Integration**: Browser extension with Meet APIs
-- **Audio Access**: WebRTC audio capture or system audio
-- **Chat Integration**: Meet chat API (limited availability)
-- **Deployment**: Chrome Web Store extension
+**Integration Approach**:
+- **Zoom Web SDK**: Browser-based integration for web meetings
+- **Zoom Desktop SDK**: Native desktop application integration
+- **Zoom App Marketplace**: Official app distribution
+- **Zoom Webhooks**: Real-time meeting event handling
+
+**Installation Methods**:
+
+1. **Zoom App Marketplace (Recommended)**:
+   - Submit app to Zoom App Marketplace
+   - OAuth-based authentication and permissions
+   - Automatic installation for users
+   - Access to enhanced Zoom APIs
+
+2. **Browser Extension**:
+   - Chrome/Firefox extension for Zoom web client
+   - Content script injection into Zoom web interface
+   - WebRTC audio capture from browser
+   - Manual installation by users
+
+**Zoom Integration Architecture**:
+```
+zoom-integration/
+├── zoom-app/             # Zoom App Marketplace app
+│   ├── manifest.json     # Zoom app manifest
+│   ├── oauth/           # OAuth flow handling
+│   └── webhooks/        # Zoom webhook handlers
+├── browser-extension/    # Chrome/Firefox extension
+│   ├── manifest.json     # Extension manifest
+│   ├── content-script.js # Zoom page injection
+│   └── background.js     # Extension background
+└── desktop-app/         # Electron desktop app
+    ├── main.js          # Electron main process
+    └── zoom-integration/ # Zoom SDK integration
+```
+
+**Zoom API Capabilities**:
+- **Meeting Events**: Start/end detection via webhooks
+- **Participant Info**: Real-time participant list and roles
+- **Audio Access**: Web SDK audio streams or system capture
+- **Chat Integration**: Send messages to Zoom chat
+- **Recording Integration**: Access to cloud recordings
+
+**Required Zoom Permissions**:
+```json
+{
+  "scopes": [
+    "meeting:read",
+    "meeting:write",
+    "chat_message:write",
+    "user:read"
+  ],
+  "event_subscriptions": [
+    "meeting.started",
+    "meeting.ended",
+    "meeting.participant_joined",
+    "meeting.participant_left"
+  ]
+}
+```
+
+### Google Meet Platform Integration
+
+**Integration Approach**:
+- **Browser Extension**: Primary integration method for Google Meet
+- **Google Calendar API**: Meeting metadata and agenda access
+- **Chrome Extensions API**: Deep browser integration
+- **WebRTC Audio Capture**: Direct audio stream access
+
+**Installation Methods**:
+
+1. **Chrome Web Store (Primary)**:
+   - Browser extension published to Chrome Web Store
+   - Automatic updates and easy installation
+   - Access to Chrome Extensions APIs
+   - Works with Google Meet web interface
+
+2. **Firefox Add-ons (Secondary)**:
+   - Cross-browser support for Firefox users
+   - WebExtensions API compatibility
+   - Similar functionality to Chrome version
+
+**Google Meet Integration Architecture**:
+```
+meet-extension/
+├── manifest.json         # Extension manifest (Manifest V3)
+├── content-scripts/      # Meet page injection
+│   ├── meet-detector.js  # Meeting detection
+│   ├── audio-capture.js  # Audio stream capture
+│   └── ui-injection.js   # Plugin UI injection
+├── background/           # Service worker
+│   ├── background.js     # Extension background
+│   └── calendar-api.js   # Google Calendar integration
+├── popup/               # Extension popup UI
+│   ├── popup.html       # Popup interface
+│   └── popup.js         # Popup logic
+└── options/             # Extension options page
+    ├── options.html     # Settings interface
+    └── options.js       # Settings logic
+```
+
+**Google Meet Capabilities**:
+- **Meeting Detection**: Automatic detection when joining Google Meet
+- **Audio Capture**: WebRTC audio stream access via browser APIs
+- **Participant Info**: Limited participant information from DOM
+- **Calendar Integration**: Meeting agenda via Google Calendar API
+- **Export Options**: File download, email, Google Drive integration
+
+**Required Chrome Extension Permissions**:
+```json
+{
+  "permissions": [
+    "activeTab",
+    "storage",
+    "identity",
+    "https://meet.google.com/*",
+    "https://calendar.google.com/*"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*"
+  ],
+  "oauth2": {
+    "client_id": "your-google-oauth-client-id",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.readonly"
+    ]
+  }
+}
+```
+
+**Google Meet Limitations**:
+- No native chat API (transcripts exported as files)
+- Limited participant information available
+- No host detection capabilities
+- Requires user-initiated actions for most features
+
+### Platform Adapter Implementation
+
+**Unified Platform Interface**:
+```javascript
+class PlatformAdapter {
+  // Platform detection
+  static detectPlatform() {
+    if (window.location.hostname.includes('teams.microsoft.com')) return 'teams';
+    if (window.location.hostname.includes('zoom.us')) return 'zoom';
+    if (window.location.hostname.includes('meet.google.com')) return 'meet';
+    return 'unknown';
+  }
+
+  // Abstract methods implemented by each platform
+  async initialize() { throw new Error('Not implemented'); }
+  async getMeetingInfo() { throw new Error('Not implemented'); }
+  async getAudioStream() { throw new Error('Not implemented'); }
+  async getParticipants() { throw new Error('Not implemented'); }
+  async sendMessageToChat(message) { throw new Error('Not implemented'); }
+  async getMeetingAgenda() { throw new Error('Not implemented'); }
+  async isHost() { throw new Error('Not implemented'); }
+  getCapabilities() { throw new Error('Not implemented'); }
+}
+
+class TeamsAdapter extends PlatformAdapter {
+  async initialize() {
+    await microsoftTeams.initialize();
+    this.context = await microsoftTeams.getContext();
+  }
+
+  async getAudioStream() {
+    return await microsoftTeams.media.getAudioStream();
+  }
+
+  async sendMessageToChat(message) {
+    return await microsoftTeams.conversations.sendMessage(message);
+  }
+
+  getCapabilities() {
+    return {
+      chatIntegration: true,
+      agendaAccess: true,
+      participantInfo: true,
+      hostDetection: true,
+      audioQuality: 'high'
+    };
+  }
+}
+
+class ZoomAdapter extends PlatformAdapter {
+  async initialize() {
+    await ZoomMtg.init({
+      leaveUrl: window.location.origin,
+      success: () => console.log('Zoom SDK initialized')
+    });
+  }
+
+  async getAudioStream() {
+    return await ZoomMtg.getAudioStream();
+  }
+
+  async sendMessageToChat(message) {
+    return await ZoomMtg.sendChatMessage(message);
+  }
+
+  getCapabilities() {
+    return {
+      chatIntegration: true,
+      agendaAccess: false,
+      participantInfo: true,
+      hostDetection: true,
+      audioQuality: 'high'
+    };
+  }
+}
+
+class MeetAdapter extends PlatformAdapter {
+  async initialize() {
+    // Browser extension initialization
+    this.extensionId = chrome.runtime.id;
+  }
+
+  async getAudioStream() {
+    return await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
+
+  async sendMessageToChat(message) {
+    // Google Meet has no chat API - return false
+    return false;
+  }
+
+  async getMeetingAgenda() {
+    // Access via Google Calendar API
+    return await this.getCalendarEvent();
+  }
+
+  getCapabilities() {
+    return {
+      chatIntegration: false,
+      agendaAccess: true,
+      participantInfo: false,
+      hostDetection: false,
+      audioQuality: 'medium'
+    };
+  }
+}
+```
+
+### Cross-Platform Deployment Strategy
+
+**Multi-Platform Distribution**:
+
+1. **Teams**: Native Teams app via Teams App Store or sideloading
+2. **Zoom**: Zoom App Marketplace + browser extension fallback
+3. **Google Meet**: Chrome Web Store extension + Firefox Add-ons
+4. **Universal**: Electron desktop app for all platforms
+
+**Shared Codebase Architecture**:
+```
+universal-meeting-transcription/
+├── core/                 # Shared business logic
+│   ├── transcription/    # STT engine
+│   ├── speaker-id/       # Speaker identification
+│   ├── summary/          # AI summary generation
+│   └── storage/          # Data management
+├── platforms/            # Platform-specific adapters
+│   ├── teams/           # Teams integration
+│   ├── zoom/            # Zoom integration
+│   ├── meet/            # Google Meet integration
+│   └── generic/         # Fallback implementation
+├── ui/                  # Shared UI components
+│   ├── react-components/ # Reusable React components
+│   └── platform-themes/ # Platform-specific styling
+└── deployment/          # Build and deployment scripts
+    ├── teams-build/     # Teams app packaging
+    ├── zoom-build/      # Zoom app packaging
+    ├── extension-build/ # Browser extension build
+    └── desktop-build/   # Electron app build
+```
 
 ### Generic/Fallback Approach
 - **Integration**: Desktop application with system-level audio capture
@@ -725,13 +991,29 @@ teams-transcription-app/
 
 | Feature | Teams | Zoom | Google Meet | Generic |
 |---------|-------|------|-------------|---------|
-| Native Audio Access | ✅ | ✅ | ⚠️ | ✅ |
-| Chat Integration | ✅ | ✅ | ⚠️ | ❌ |
-| Agenda Access | ✅ | ⚠️ | ❌ | ❌ |
-| Host Detection | ✅ | ✅ | ⚠️ | ❌ |
+| Native Audio Access | ✅ | ✅ | ✅ | ✅ |
+| Chat Integration | ✅ | ✅ | ❌ | ❌ |
+| Agenda Access | ✅ | ❌ | ✅ | ❌ |
+| Host Detection | ✅ | ✅ | ❌ | ❌ |
 | Participant Info | ✅ | ✅ | ⚠️ | ❌ |
+| Meeting Events | ✅ | ✅ | ⚠️ | ❌ |
+| Real-time Transcription | ✅ | ✅ | ✅ | ✅ |
+| Speaker Identification | ✅ | ✅ | ✅ | ✅ |
+| AI Summaries | ✅ | ✅ | ✅ | ✅ |
+| File Export | ✅ | ✅ | ✅ | ✅ |
+| Cloud Recording Access | ✅ | ✅ | ❌ | ❌ |
+| OAuth Integration | ✅ | ✅ | ✅ | ❌ |
 
-✅ Full Support | ⚠️ Limited Support | ❌ Not Available
+**Legend:**
+- ✅ Full Support: Feature works natively with platform APIs
+- ⚠️ Limited Support: Feature works with limitations or workarounds
+- ❌ Not Available: Feature not supported on this platform
+
+**Platform-Specific Notes:**
+- **Teams**: Full native integration with all features supported
+- **Zoom**: Strong integration via SDK, no agenda access from Zoom directly
+- **Google Meet**: Browser extension approach, no chat API, agenda via Google Calendar
+- **Generic**: Desktop app fallback for unsupported platforms
 
 ## Security and Privacy Considerations
 

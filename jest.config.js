@@ -131,6 +131,15 @@ module.exports = {
         '<rootDir>/src/setupTests.js',
         '<rootDir>/tests/utils/security-setup.js'
       ]
+    },
+    {
+      displayName: 'deployment',
+      testEnvironment: 'node',
+      testMatch: [
+        '<rootDir>/tests/deployment/**/*.{test,spec}.{js,jsx}'
+      ],
+      setupFilesAfterEnv: [],
+      testTimeout: 120000
     }
   ],
   

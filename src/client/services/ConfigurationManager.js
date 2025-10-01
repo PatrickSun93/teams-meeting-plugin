@@ -1,11 +1,13 @@
 // Configuration Manager - Handles user settings, API keys, and preferences with security integration
 class ConfigurationManager {
-  constructor(securityManager = null) {
+  constructor(securityManager = null, platformConfigManager = null) {
     this.securityManager = securityManager;
-    this.dbName = 'TeamsTranscriptionConfig';
-    this.dbVersion = 1;
+    this.platformConfigManager = platformConfigManager;
+    this.dbName = 'UniversalTranscriptionConfig'; // Updated for multi-platform
+    this.dbVersion = 2; // Incremented for migration support
     this.db = null;
     this.initialized = false;
+    this.migrationCompleted = false;
   }
 
   // Initialize IndexedDB
@@ -27,6 +29,7 @@ class ConfigurationManager {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const oldVersion = event.oldVersion;
 
         // Create object stores
         if (!db.objectStoreNames.contains('userConfig')) {
@@ -35,14 +38,33 @@ class ConfigurationManager {
         }
 
         if (!db.objectStoreNames.contains('apiKeys')) {
-          const apiKeysStore = db.createObjectStore('apiKeys', { keyPath: 'service' });
-          apiKeysStore.createIndex('service', 'service', { unique: true });
+          const apiKeysStore = db.createObjectStore('apiKeys', { keyPath: 'id' });
+          apiKeysStore.createIndex('service', 'service', { unique: false });
+          apiKeysStore.createIndex('platform', 'platform', { unique: false });
         }
 
         if (!db.objectStoreNames.contains('userPrompts')) {
           const userPromptsStore = db.createObjectStore('userPrompts', { keyPath: 'id' });
           userPromptsStore.createIndex('userId', 'userId', { unique: false });
           userPromptsStore.createIndex('name', 'name', { unique: false });
+        }
+
+        // New stores for multi-platform support
+        if (!db.objectStoreNames.contains('platformConfigs')) {
+          const platformConfigStore = db.createObjectStore('platformConfigs', { keyPath: 'id' });
+          platformConfigStore.createIndex('userId', 'userId', { unique: false });
+          platformConfigStore.createIndex('platform', 'platform', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('crossPlatformSync')) {
+          const syncStore = db.createObjectStore('crossPlatformSync', { keyPath: 'id' });
+          syncStore.createIndex('userId', 'userId', { unique: false });
+          syncStore.createIndex('syncType', 'syncType', { unique: false });
+        }
+
+        // Migration from version 1 to 2
+        if (oldVersion < 2) {
+          this._scheduleMigration();
         }
       };
     });
@@ -128,14 +150,15 @@ class ConfigurationManager {
     });
   }
 
-  // Get API key for a service
-  async getApiKey(service) {
+  // Get API key for a service (with optional platform specificity)
+  async getApiKey(service, platform = null) {
     await this.initialize();
 
     // Use SecurityManager for secure retrieval if available
     if (this.securityManager && this.securityManager.isInitialized()) {
       try {
-        const apiKey = await this.securityManager.secureStorageService.getApiKey(service);
+        const keyId = platform ? `${service}_${platform}` : service;
+        const apiKey = await this.securityManager.secureStorageService.getApiKey(keyId);
         if (apiKey) {
           return apiKey;
         }
@@ -148,14 +171,19 @@ class ConfigurationManager {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(['apiKeys'], 'readonly');
       const store = transaction.objectStore('apiKeys');
-      const request = store.get(service);
+      
+      // Try platform-specific key first, then fall back to general key
+      const keyId = platform ? `${service}_${platform}` : service;
+      const request = store.get(keyId);
 
       request.onsuccess = () => {
         const result = request.result;
         if (result && result.encryptedKey) {
-          // Decrypt the API key (simple base64 for now, should use proper encryption in production)
           const decryptedKey = this.decryptApiKey(result.encryptedKey);
           resolve(decryptedKey);
+        } else if (platform) {
+          // If platform-specific key not found, try general key
+          this.getApiKey(service, null).then(resolve).catch(reject);
         } else {
           resolve(null);
         }
@@ -167,18 +195,54 @@ class ConfigurationManager {
     });
   }
 
-  // Save API key for a service
-  async saveApiKey(service, apiKey) {
+  // Get all API keys for a platform
+  async getPlatformApiKeys(platform) {
+    await this.initialize();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['apiKeys'], 'readonly');
+      const store = transaction.objectStore('apiKeys');
+      const index = store.index('platform');
+      const request = index.getAll(platform);
+
+      request.onsuccess = () => {
+        const results = request.result || [];
+        const apiKeys = {};
+        
+        results.forEach(result => {
+          if (result.encryptedKey) {
+            try {
+              const decryptedKey = this.decryptApiKey(result.encryptedKey);
+              apiKeys[result.service] = decryptedKey;
+            } catch (error) {
+              console.warn(`Failed to decrypt API key for ${result.service}:`, error);
+            }
+          }
+        });
+        
+        resolve(apiKeys);
+      };
+
+      request.onerror = () => {
+        reject(new Error('Failed to retrieve platform API keys'));
+      };
+    });
+  }
+
+  // Save API key for a service (with optional platform specificity)
+  async saveApiKey(service, apiKey, platform = null) {
     await this.initialize();
 
     if (!apiKey || typeof apiKey !== 'string') {
       throw new Error('Invalid API key');
     }
 
+    const keyId = platform ? `${service}_${platform}` : service;
+
     // Use SecurityManager for secure storage if available
     if (this.securityManager && this.securityManager.isInitialized()) {
       try {
-        const success = await this.securityManager.secureStorageService.storeApiKey(service, apiKey);
+        const success = await this.securityManager.secureStorageService.storeApiKey(keyId, apiKey);
         if (success) {
           return true;
         }
@@ -194,7 +258,9 @@ class ConfigurationManager {
       const transaction = this.db.transaction(['apiKeys'], 'readwrite');
       const store = transaction.objectStore('apiKeys');
       const request = store.put({
+        id: keyId,
         service,
+        platform: platform || 'global',
         encryptedKey,
         updatedAt: new Date().toISOString()
       });
@@ -207,6 +273,22 @@ class ConfigurationManager {
         reject(new Error('Failed to save API key'));
       };
     });
+  }
+
+  // Save multiple API keys for a platform
+  async savePlatformApiKeys(platform, apiKeys) {
+    const results = {};
+    
+    for (const [service, apiKey] of Object.entries(apiKeys)) {
+      try {
+        results[service] = await this.saveApiKey(service, apiKey, platform);
+      } catch (error) {
+        console.error(`Failed to save API key for ${service} on ${platform}:`, error);
+        results[service] = false;
+      }
+    }
+    
+    return results;
   }
 
   // Delete API key for a service
@@ -495,6 +577,10 @@ class ConfigurationManager {
       privacyMode: false,
       dataRetentionDays: 30,
       consentGiven: false,
+      // Multi-platform settings
+      crossPlatformSync: true,
+      platformSpecificSettings: {},
+      defaultPlatform: 'teams',
       security: {
         encryptStorage: true,
         requireConsent: true,
@@ -510,6 +596,125 @@ class ConfigurationManager {
     }
 
     return defaultConfig;
+  }
+
+  // Get platform-specific configuration
+  async getPlatformConfig(userId = 'default', platform) {
+    await this.initialize();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['platformConfigs'], 'readonly');
+      const store = transaction.objectStore('platformConfigs');
+      const request = store.get(`${userId}_${platform}`);
+
+      request.onsuccess = () => {
+        const config = request.result || this.getDefaultPlatformConfig(userId, platform);
+        resolve(config);
+      };
+
+      request.onerror = () => {
+        reject(new Error('Failed to retrieve platform configuration'));
+      };
+    });
+  }
+
+  // Save platform-specific configuration
+  async savePlatformConfig(userId = 'default', platform, config) {
+    await this.initialize();
+
+    const platformConfig = {
+      id: `${userId}_${platform}`,
+      userId,
+      platform,
+      config,
+      updatedAt: new Date().toISOString()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['platformConfigs'], 'readwrite');
+      const store = transaction.objectStore('platformConfigs');
+      const request = store.put(platformConfig);
+
+      request.onsuccess = () => {
+        // Log configuration change if SecurityManager is available
+        if (this.securityManager && this.securityManager.auditLogService) {
+          this.securityManager.auditLogService.logConfigChange(
+            'platform_config',
+            { platform, userId },
+            config,
+            `Platform configuration updated for ${platform}`
+          );
+        }
+        resolve(platformConfig);
+      };
+
+      request.onerror = () => {
+        reject(new Error('Failed to save platform configuration'));
+      };
+    });
+  }
+
+  // Get default platform-specific configuration
+  getDefaultPlatformConfig(userId = 'default', platform) {
+    const baseConfig = {
+      id: `${userId}_${platform}`,
+      userId,
+      platform,
+      config: {
+        enabled: true,
+        audioQuality: 'high',
+        transcriptionEnabled: true,
+        speakerIdentificationEnabled: true,
+        summaryEnabled: true,
+        chatIntegrationEnabled: true,
+        agendaAccessEnabled: true
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Platform-specific defaults
+    switch (platform) {
+      case 'teams':
+        baseConfig.config = {
+          ...baseConfig.config,
+          nativeIntegration: true,
+          graphApiEnabled: true,
+          teamsAppId: null,
+          tenantId: null
+        };
+        break;
+      case 'zoom':
+        baseConfig.config = {
+          ...baseConfig.config,
+          sdkIntegration: true,
+          webhookEnabled: true,
+          zoomApiKey: null,
+          zoomApiSecret: null
+        };
+        break;
+      case 'google_meet':
+        baseConfig.config = {
+          ...baseConfig.config,
+          extensionMode: true,
+          calendarIntegration: true,
+          exportFormat: 'pdf',
+          chatIntegrationEnabled: false // Google Meet doesn't support chat API
+        };
+        break;
+      case 'generic':
+        baseConfig.config = {
+          ...baseConfig.config,
+          audioQuality: 'medium',
+          speakerIdentificationEnabled: false,
+          chatIntegrationEnabled: false,
+          agendaAccessEnabled: false,
+          exportFormat: 'txt'
+        };
+        break;
+    }
+
+    return baseConfig;
   }
 
   // Get default summary prompt
@@ -711,6 +916,187 @@ Focus on the agenda items and important outcomes. Keep the summary professional 
     return basicValidation;
   }
 
+  // Cross-platform synchronization methods
+  async syncSettingsAcrossPlatforms(userId = 'default', sourceConfig) {
+    await this.initialize();
+
+    const syncData = {
+      id: `${userId}_sync_${Date.now()}`,
+      userId,
+      syncType: 'settings',
+      sourceConfig,
+      syncedAt: new Date().toISOString()
+    };
+
+    // Extract syncable settings (exclude platform-specific ones)
+    const syncableSettings = {
+      sttProvider: sourceConfig.sttProvider,
+      aiProvider: sourceConfig.aiProvider,
+      language: sourceConfig.language,
+      transcriptionQuality: sourceConfig.transcriptionQuality,
+      enableSpeakerIdentification: sourceConfig.enableSpeakerIdentification,
+      enableSummaryGeneration: sourceConfig.enableSummaryGeneration,
+      privacyMode: sourceConfig.privacyMode,
+      dataRetentionDays: sourceConfig.dataRetentionDays,
+      security: sourceConfig.security
+    };
+
+    // Apply to all platforms if cross-platform sync is enabled
+    if (sourceConfig.crossPlatformSync) {
+      const platforms = ['teams', 'zoom', 'google_meet', 'generic'];
+      
+      for (const platform of platforms) {
+        try {
+          const platformConfig = await this.getPlatformConfig(userId, platform);
+          const updatedConfig = {
+            ...platformConfig.config,
+            ...syncableSettings
+          };
+          
+          await this.savePlatformConfig(userId, platform, updatedConfig);
+        } catch (error) {
+          console.warn(`Failed to sync settings to platform ${platform}:`, error);
+        }
+      }
+    }
+
+    // Store sync record
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['crossPlatformSync'], 'readwrite');
+      const store = transaction.objectStore('crossPlatformSync');
+      const request = store.put(syncData);
+
+      request.onsuccess = () => {
+        resolve(syncData);
+      };
+
+      request.onerror = () => {
+        reject(new Error('Failed to save sync data'));
+      };
+    });
+  }
+
+  // Get unified configuration for a platform
+  async getUnifiedConfig(userId = 'default', platform) {
+    const [userConfig, platformConfig] = await Promise.all([
+      this.getUserConfig(userId),
+      this.getPlatformConfig(userId, platform)
+    ]);
+
+    // Merge configurations with platform-specific overrides
+    const unifiedConfig = {
+      ...userConfig,
+      ...platformConfig.config,
+      platform,
+      platformCapabilities: this._getPlatformCapabilities(platform)
+    };
+
+    return unifiedConfig;
+  }
+
+  // Migrate existing Teams-only configurations to multi-platform
+  async migrateTeamsOnlyConfig(userId = 'default') {
+    if (this.migrationCompleted) {
+      return true;
+    }
+
+    try {
+      const existingConfig = await this.getUserConfig(userId);
+      
+      // Check if this is an old Teams-only config
+      if (!existingConfig.crossPlatformSync && !existingConfig.platformSpecificSettings) {
+        // Create platform-specific configs based on existing config
+        const platforms = ['teams', 'zoom', 'google_meet', 'generic'];
+        
+        for (const platform of platforms) {
+          const platformConfig = this.getDefaultPlatformConfig(userId, platform);
+          
+          // Apply existing settings where applicable
+          platformConfig.config = {
+            ...platformConfig.config,
+            transcriptionEnabled: existingConfig.enableSpeakerIdentification !== false,
+            speakerIdentificationEnabled: existingConfig.enableSpeakerIdentification,
+            summaryEnabled: existingConfig.enableSummaryGeneration,
+            chatIntegrationEnabled: existingConfig.autoSendToChat && platform !== 'google_meet'
+          };
+          
+          await this.savePlatformConfig(userId, platform, platformConfig.config);
+        }
+
+        // Update user config to multi-platform format
+        const updatedConfig = {
+          ...existingConfig,
+          crossPlatformSync: true,
+          platformSpecificSettings: {},
+          defaultPlatform: 'teams'
+        };
+
+        await this.saveUserConfig(updatedConfig);
+        this.migrationCompleted = true;
+        
+        console.log('Successfully migrated Teams-only configuration to multi-platform');
+        return true;
+      }
+      
+      this.migrationCompleted = true;
+      return true;
+    } catch (error) {
+      console.error('Failed to migrate Teams-only configuration:', error);
+      return false;
+    }
+  }
+
+  // Get platform capabilities for feature toggling
+  _getPlatformCapabilities(platform) {
+    const capabilities = {
+      teams: {
+        chatIntegration: true,
+        agendaAccess: true,
+        participantInfo: true,
+        hostDetection: true,
+        audioQuality: 'high',
+        nativeIntegration: true
+      },
+      zoom: {
+        chatIntegration: true,
+        agendaAccess: false,
+        participantInfo: true,
+        hostDetection: true,
+        audioQuality: 'high',
+        sdkIntegration: true
+      },
+      google_meet: {
+        chatIntegration: false,
+        agendaAccess: true,
+        participantInfo: false,
+        hostDetection: false,
+        audioQuality: 'medium',
+        extensionMode: true
+      },
+      generic: {
+        chatIntegration: false,
+        agendaAccess: false,
+        participantInfo: false,
+        hostDetection: false,
+        audioQuality: 'medium',
+        fallbackMode: true
+      }
+    };
+
+    return capabilities[platform] || capabilities.generic;
+  }
+
+  // Schedule migration to run after initialization
+  _scheduleMigration() {
+    setTimeout(async () => {
+      try {
+        await this.migrateTeamsOnlyConfig();
+      } catch (error) {
+        console.error('Scheduled migration failed:', error);
+      }
+    }, 1000);
+  }
+
   // Clear all configuration data
   async clearAllData() {
     await this.initialize();
@@ -726,10 +1112,10 @@ Focus on the agenda items and important outcomes. Keep the summary professional 
     }
 
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction(['userConfig', 'apiKeys', 'userPrompts'], 'readwrite');
+      const transaction = this.db.transaction(['userConfig', 'apiKeys', 'userPrompts', 'platformConfigs', 'crossPlatformSync'], 'readwrite');
       
       let completed = 0;
-      const stores = ['userConfig', 'apiKeys', 'userPrompts'];
+      const stores = ['userConfig', 'apiKeys', 'userPrompts', 'platformConfigs', 'crossPlatformSync'];
       
       stores.forEach(storeName => {
         const store = transaction.objectStore(storeName);
@@ -747,6 +1133,11 @@ Focus on the agenda items and important outcomes. Keep the summary professional 
         };
       });
     });
+  }
+
+  // Set platform configuration manager
+  setPlatformConfigurationManager(platformConfigManager) {
+    this.platformConfigManager = platformConfigManager;
   }
 }
 

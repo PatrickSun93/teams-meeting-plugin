@@ -1,0 +1,1 @@
+console.log("Mock webhook handler");

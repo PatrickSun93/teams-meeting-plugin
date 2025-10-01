@@ -17,9 +17,14 @@ import HelpPanel from './HelpPanel.js';
 import ProgressIndicator from './ProgressIndicator.js';
 import StatusDisplay from './StatusDisplay.js';
 import PerformanceOptimizationPanel from './PerformanceOptimizationPanel.js';
+import PlatformIndicator from './PlatformIndicator.js';
+import { platformThemeProvider } from './PlatformTheme.js';
+import { platformDetectionService } from '../services/PlatformDetectionService.js';
+import { MeetingPlatform } from '../services/PlatformAdapter.js';
 import useConfiguration from '../hooks/useConfiguration.js';
 import { errorHandler } from '../services/ErrorHandler.js';
 import './PluginInterface.css';
+import './PlatformTheme.css';
 
 const PluginInterface = () => {
   // Navigation state
@@ -36,6 +41,11 @@ const PluginInterface = () => {
   const [currentTranscript, setCurrentTranscript] = useState(null);
   const [currentSummary, setCurrentSummary] = useState(null);
   const [transcriptionProgress, setTranscriptionProgress] = useState(null);
+  
+  // Platform state
+  const [currentPlatform, setCurrentPlatform] = useState(MeetingPlatform.UNKNOWN);
+  const [platformCapabilities, setPlatformCapabilities] = useState(null);
+  const [platformTheme, setPlatformTheme] = useState(null);
   
   // Refs
   const transcriptionEngineRef = useRef(null);
@@ -95,6 +105,60 @@ const PluginInterface = () => {
       transcriptionEngineRef.current = transcriptionEngine;
     }
   }, [transcriptionEngine]);
+
+  // Platform detection and theme setup
+  useEffect(() => {
+    const initializePlatform = async () => {
+      try {
+        // Detect current platform
+        const detectedPlatform = platformDetectionService.getCurrentPlatform();
+        setCurrentPlatform(detectedPlatform);
+        
+        // Set platform theme
+        platformThemeProvider.setPlatform(detectedPlatform);
+        
+        // Get platform capabilities
+        const capabilities = await platformDetectionService.getPlatformCapabilities(detectedPlatform);
+        setPlatformCapabilities(capabilities);
+        
+        console.log('Platform initialized:', {
+          platform: detectedPlatform,
+          capabilities
+        });
+      } catch (error) {
+        console.error('Error initializing platform:', error);
+      }
+    };
+
+    initializePlatform();
+
+    // Listen for platform changes
+    const handlePlatformChange = async (event) => {
+      setCurrentPlatform(event.newPlatform);
+      platformThemeProvider.setPlatform(event.newPlatform);
+      
+      const capabilities = await platformDetectionService.getPlatformCapabilities(event.newPlatform);
+      setPlatformCapabilities(capabilities);
+    };
+
+    platformDetectionService.onPlatformDetected(handlePlatformChange);
+
+    // Listen for theme changes
+    const handleThemeChange = (themeData) => {
+      setPlatformTheme(themeData);
+    };
+
+    platformThemeProvider.onThemeChange(handleThemeChange);
+
+    // Start continuous platform detection
+    platformDetectionService.startContinuousDetection();
+
+    return () => {
+      platformDetectionService.removeDetectionCallback(handlePlatformChange);
+      platformThemeProvider.removeThemeChangeCallback(handleThemeChange);
+      platformDetectionService.stopContinuousDetection();
+    };
+  }, []);
 
   // Handle transcription start
   const handleStartTranscription = useCallback(async () => {
@@ -162,15 +226,31 @@ const PluginInterface = () => {
   // Clear error
   const clearError = () => setError(null);
 
-  // Navigation tabs
-  const tabs = [
-    { id: 'meeting', label: 'Meeting', icon: '🎤' },
-    { id: 'transcription', label: 'Transcription', icon: '📝' },
-    { id: 'summary', label: 'Summary', icon: '📋' },
-    { id: 'history', label: 'History', icon: '📚' },
-    { id: 'speakers', label: 'Speakers', icon: '👥' },
-    { id: 'agenda', label: 'Agenda', icon: '📅' }
-  ];
+  // Get platform-aware navigation tabs
+  const getNavigationTabs = () => {
+    const baseTabs = [
+      { id: 'meeting', label: 'Meeting', icon: '🎤', alwaysShow: true },
+      { id: 'transcription', label: 'Transcription', icon: '📝', alwaysShow: true },
+      { id: 'summary', label: 'Summary', icon: '📋', requiresCapability: 'aiSummary' },
+      { id: 'history', label: 'History', icon: '📚', alwaysShow: true },
+      { id: 'speakers', label: 'Speakers', icon: '👥', requiresCapability: 'speakerIdentification' },
+      { id: 'agenda', label: 'Agenda', icon: '📅', requiresCapability: 'agendaAccess' }
+    ];
+
+    // Filter tabs based on platform capabilities
+    return baseTabs.filter(tab => {
+      if (tab.alwaysShow) return true;
+      if (!platformCapabilities) return false;
+      
+      if (tab.requiresCapability) {
+        return platformCapabilities[tab.requiresCapability] === true;
+      }
+      
+      return true;
+    });
+  };
+
+  const tabs = getNavigationTabs();
 
   if (!isInitialized) {
     return (
@@ -187,31 +267,37 @@ const PluginInterface = () => {
   const displayError = error || controllerError;
 
   return (
-    <div className="plugin-interface">
+    <div className={`plugin-interface platform-component platform-${currentPlatform}`}>
       {/* Header */}
       <header className="plugin-header">
-        <div className="header-content">
+        <div className="header-content platform-container">
           <div className="header-title">
             <h1>🎤 Meeting Transcription</h1>
             <p>Real-time transcription and AI summaries</p>
+            <PlatformIndicator 
+              platform={currentPlatform}
+              capabilities={platformCapabilities}
+              isActive={meetingState === 'active'}
+              compact={true}
+            />
           </div>
           <div className="header-actions">
             <button 
-              className="action-button"
+              className="action-button platform-button"
               onClick={() => setShowConfigPanel(true)}
               title="Settings"
             >
               ⚙️
             </button>
             <button 
-              className="action-button"
+              className="action-button platform-button"
               onClick={() => setShowDiagnosticPanel(true)}
               title="Diagnostics"
             >
               🔧
             </button>
             <button 
-              className="action-button"
+              className="action-button platform-button"
               onClick={() => setShowHelpPanel(true)}
               title="Help"
             >
@@ -219,7 +305,7 @@ const PluginInterface = () => {
             </button>
             
             <button 
-              className="action-button"
+              className="action-button platform-button"
               onClick={() => setShowPerformancePanel(true)}
               title="Performance Optimization"
             >
@@ -237,6 +323,8 @@ const PluginInterface = () => {
         audioQuality={audioQuality}
         error={displayError}
         onClearError={clearError}
+        platform={currentPlatform}
+        platformCapabilities={platformCapabilities}
       />
 
       {/* Progress Indicator */}
@@ -249,20 +337,22 @@ const PluginInterface = () => {
 
       {/* Navigation Tabs */}
       <nav className="plugin-navigation">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            <span className="tab-icon">{tab.icon}</span>
-            <span className="tab-label">{tab.label}</span>
-          </button>
-        ))}
+        <div className="platform-container">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              className={`nav-tab platform-button ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <span className="tab-icon platform-icon">{tab.icon}</span>
+              <span className="tab-label">{tab.label}</span>
+            </button>
+          ))}
+        </div>
       </nav>
 
       {/* Main Content */}
-      <main className="plugin-content">
+      <main className="plugin-content platform-container">
         {activeTab === 'meeting' && (
           <div className="tab-content">
             <MeetingStatus 
@@ -280,24 +370,12 @@ const PluginInterface = () => {
               isTranscribing={isTranscribing}
             />
 
-            {getPlatformCapabilities && (
-              <div className="platform-capabilities">
-                <h3>Platform Capabilities</h3>
-                <div className="capabilities-grid">
-                  {Object.entries(getPlatformCapabilities()).map(([key, value]) => (
-                    <div key={key} className="capability-item">
-                      <span className="capability-name">{key}</span>
-                      <span className={`capability-value ${
-                        value === true ? 'supported' : 
-                        value === false ? 'unsupported' : 'info'
-                      }`}>
-                        {value === true ? '✅' : value === false ? '❌' : value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <PlatformIndicator 
+              platform={currentPlatform}
+              capabilities={platformCapabilities}
+              isActive={meetingState === 'active'}
+              showCapabilities={true}
+            />
           </div>
         )}
 
@@ -368,6 +446,8 @@ const PluginInterface = () => {
       <HelpPanel
         isOpen={showHelpPanel}
         onClose={() => setShowHelpPanel(false)}
+        platform={currentPlatform}
+        platformCapabilities={platformCapabilities}
       />
       
       <PerformanceOptimizationPanel

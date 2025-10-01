@@ -1,54 +1,61 @@
 /* Status Display Styles */
 .status-display {
-  background: white;
-  border: 1px solid #e1e5e9;
-  border-left: 4px solid #e1e5e9;
-  padding: 16px 20px;
-  margin: 0 0 16px 0;
-  transition: all 0.3s ease;
+  background: var(--platform-color-surface);
+  border: 1px solid var(--platform-color-border);
+  border-left: 4px solid var(--platform-color-border);
+  border-radius: var(--platform-border-radius);
+  padding: var(--platform-spacing-md) var(--platform-spacing-lg);
+  margin: 0 0 var(--platform-spacing-md) 0;
+  transition: all var(--platform-animation-duration) ease;
+  box-shadow: var(--platform-shadow-light);
 }
 
 .status-display.error {
-  background: #fef2f2;
-  border-color: #ef4444;
-  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+  border-color: var(--platform-color-error);
+  border-left-color: var(--platform-color-error);
 }
 
 .status-display.active {
-  background: #f0fdf4;
-  border-color: #22c55e;
-  border-left-color: #22c55e;
+  background: rgba(16, 185, 129, 0.05);
+  border-color: var(--platform-color-success);
+  border-left-color: var(--platform-color-success);
 }
 
 .status-display.ready {
-  background: #f0fdf4;
-  border-color: #22c55e;
-  border-left-color: #22c55e;
+  background: rgba(16, 185, 129, 0.05);
+  border-color: var(--platform-color-success);
+  border-left-color: var(--platform-color-success);
 }
 
 .status-display.waiting {
-  background: #fffbeb;
-  border-color: #f59e0b;
-  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.05);
+  border-color: var(--platform-color-warning);
+  border-left-color: var(--platform-color-warning);
 }
 
 .status-display.inactive {
-  background: #f8f9fa;
-  border-color: #6b7280;
-  border-left-color: #6b7280;
+  background: var(--platform-color-secondary);
+  border-color: var(--platform-color-text-secondary);
+  border-left-color: var(--platform-color-text-secondary);
 }
 
 .status-main {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--platform-spacing-md);
 }
 
 .status-indicator {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--platform-spacing-sm);
   flex: 1;
+}
+
+.status-platform-info {
+  flex-shrink: 0;
 }
 
 .status-icon {
@@ -65,23 +72,23 @@
 .status-message {
   font-size: 14px;
   font-weight: 500;
-  color: #323130;
+  color: var(--platform-color-text);
 }
 
 .status-detail {
   font-size: 12px;
-  color: #605e5c;
+  color: var(--platform-color-text-secondary);
 }
 
 .error-dismiss {
   background: none;
   border: none;
-  color: #ef4444;
+  color: var(--platform-color-error);
   font-size: 20px;
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
+  padding: var(--platform-spacing-xs);
+  border-radius: var(--platform-border-radius);
+  transition: background-color var(--platform-animation-duration);
   flex-shrink: 0;
 }
 
@@ -90,14 +97,14 @@
 }
 
 .audio-status {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #e1e5e9;
+  margin-top: var(--platform-spacing-sm);
+  padding-top: var(--platform-spacing-sm);
+  border-top: 1px solid var(--platform-color-border);
 }
 
 .audio-metrics {
   display: flex;
-  gap: 16px;
+  gap: var(--platform-spacing-md);
   flex-wrap: wrap;
 }
 
@@ -109,35 +116,35 @@
 }
 
 .metric-label {
-  color: #605e5c;
+  color: var(--platform-color-text-secondary);
   font-weight: 500;
 }
 
 .metric-value {
   font-weight: 600;
   padding: 2px 6px;
-  border-radius: 3px;
-  background: #f8f9fa;
+  border-radius: calc(var(--platform-border-radius) / 2);
+  background: var(--platform-color-secondary);
 }
 
-.metric-value.good {
-  color: #16a34a;
-  background: #dcfce7;
+.metric-value.platform-success {
+  color: var(--platform-color-success);
+  background: rgba(16, 185, 129, 0.1);
 }
 
-.metric-value.poor {
-  color: #dc2626;
-  background: #fee2e2;
+.metric-value.platform-warning {
+  color: var(--platform-color-warning);
+  background: rgba(245, 158, 11, 0.1);
 }
 
 /* Responsive design */
 @media (max-width: 768px) {
   .status-display {
-    padding: 12px 16px;
+    padding: var(--platform-spacing-sm) var(--platform-spacing-md);
   }
   
   .status-indicator {
-    gap: 8px;
+    gap: var(--platform-spacing-xs);
   }
   
   .status-icon {
@@ -153,7 +160,7 @@
   }
   
   .audio-metrics {
-    gap: 12px;
+    gap: var(--platform-spacing-sm);
   }
   
   .metric {
@@ -165,7 +172,7 @@
   .status-main {
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--platform-spacing-xs);
   }
   
   .error-dismiss {
@@ -174,6 +181,6 @@
   
   .audio-metrics {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--platform-spacing-xs);
   }
 }

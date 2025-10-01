@@ -1,10 +1,11 @@
 /* Plugin Interface Styles */
 .plugin-interface {
   min-height: 100vh;
-  background: #f5f5f5;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--platform-color-background);
+  font-family: var(--platform-font-primary);
   display: flex;
   flex-direction: column;
+  transition: all var(--platform-animation-duration) ease;
 }
 
 .plugin-interface.loading {
@@ -14,22 +15,26 @@
 
 /* Header */
 .plugin-header {
-  background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%);
+  background: linear-gradient(135deg, var(--platform-color-primary) 0%, var(--platform-color-primary-hover) 100%);
   color: white;
-  padding: 16px 24px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: var(--platform-spacing-md);
+  box-shadow: var(--platform-shadow-medium);
 }
 
 .header-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  max-width: 1200px;
-  margin: 0 auto;
+}
+
+.header-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--platform-spacing-xs);
 }
 
 .header-title h1 {
-  margin: 0 0 4px 0;
+  margin: 0;
   font-size: 24px;
   font-weight: 600;
 }
@@ -49,11 +54,11 @@
   background: rgba(255, 255, 255, 0.2);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: var(--platform-spacing-sm) var(--platform-spacing-sm);
+  border-radius: var(--platform-border-radius);
   cursor: pointer;
   font-size: 16px;
-  transition: all 0.2s;
+  transition: all var(--platform-animation-duration);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -68,41 +73,40 @@
 
 /* Navigation */
 .plugin-navigation {
-  background: white;
-  border-bottom: 1px solid #e1e5e9;
-  padding: 0 24px;
-  display: flex;
+  background: var(--platform-color-surface);
+  border-bottom: 1px solid var(--platform-color-border);
   overflow-x: auto;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
+}
+
+.plugin-navigation > .platform-container {
+  display: flex;
 }
 
 .nav-tab {
   background: none;
   border: none;
-  padding: 16px 20px;
+  padding: var(--platform-spacing-md) var(--platform-spacing-lg);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--platform-spacing-sm);
   font-size: 14px;
   font-weight: 500;
-  color: #605e5c;
+  color: var(--platform-color-text-secondary);
   border-bottom: 3px solid transparent;
-  transition: all 0.2s;
+  transition: all var(--platform-animation-duration);
   white-space: nowrap;
 }
 
 .nav-tab:hover {
-  color: #323130;
-  background: #f8f9fa;
+  color: var(--platform-color-text);
+  background: var(--platform-color-secondary);
 }
 
 .nav-tab.active {
-  color: #0078d4;
-  border-bottom-color: #0078d4;
-  background: #f8f9fa;
+  color: var(--platform-color-primary);
+  border-bottom-color: var(--platform-color-primary);
+  background: var(--platform-color-secondary);
 }
 
 .tab-icon {
@@ -116,107 +120,60 @@
 /* Main Content */
 .plugin-content {
   flex: 1;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 24px;
+  padding: var(--platform-spacing-lg);
 }
 
 .tab-content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--platform-spacing-lg);
 }
 
-/* Platform Capabilities */
-.platform-capabilities {
-  background: white;
-  border: 1px solid #e1e5e9;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+/* Platform-specific adjustments */
+.platform-teams .plugin-interface {
+  /* Teams-specific styling already handled by CSS variables */
 }
 
-.platform-capabilities h3 {
-  margin: 0 0 16px 0;
-  color: #323130;
-  font-size: 16px;
-  font-weight: 600;
+.platform-zoom .plugin-interface {
+  /* Zoom-specific styling */
 }
 
-.capabilities-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+.platform-google_meet .plugin-interface {
+  /* Google Meet-specific styling */
 }
 
-.capability-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.capability-name {
-  color: #605e5c;
-  font-weight: 500;
-  text-transform: capitalize;
-}
-
-.capability-value.supported {
-  color: #107c10;
-  font-weight: 500;
-}
-
-.capability-value.unsupported {
-  color: #d13438;
-  font-weight: 500;
-}
-
-.capability-value.info {
-  color: #323130;
-  font-family: 'Segoe UI Mono', monospace;
-  font-size: 12px;
+.platform-unknown .plugin-interface {
+  /* Generic styling */
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
   .plugin-content {
-    padding: 16px;
+    padding: var(--platform-spacing-md);
   }
   
   .plugin-header {
-    padding: 16px;
+    padding: var(--platform-spacing-md);
   }
   
   .header-content {
     flex-direction: column;
-    gap: 12px;
+    gap: var(--platform-spacing-sm);
     text-align: center;
   }
   
   .header-title {
     text-align: center;
-  }
-  
-  .plugin-navigation {
-    padding: 0 16px;
+    align-items: center;
   }
   
   .nav-tab {
-    padding: 12px 16px;
+    padding: var(--platform-spacing-sm) var(--platform-spacing-md);
     font-size: 13px;
   }
   
   .tab-icon {
     font-size: 14px;
-  }
-  
-  .capabilities-grid {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -226,7 +183,7 @@
   }
   
   .nav-tab {
-    padding: 12px;
+    padding: var(--platform-spacing-sm);
   }
   
   .header-title h1 {
