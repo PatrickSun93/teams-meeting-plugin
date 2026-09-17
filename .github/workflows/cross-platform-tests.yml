@@ -47,9 +47,11 @@ jobs:
 
       - name: Create test matrix
         id: create-matrix
+        env:
+          PLATFORMS_JSON: ${{ steps.detect-platforms.outputs.platforms }}
         run: |
           MATRIX=$(node -e "
-            const platforms = ${{ steps.detect-platforms.outputs.platforms }};
+            const platforms = JSON.parse(process.env.PLATFORMS_JSON);
             const browsers = ['chromium', 'firefox', 'webkit'];
             const testTypes = ['unit', 'integration', 'e2e', 'performance', 'accessibility', 'security'];
             const matrix = {
